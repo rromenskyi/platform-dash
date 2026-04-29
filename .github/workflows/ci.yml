@@ -1,9 +1,10 @@
-name: build
+name: ci
 
 on:
   push:
     branches: [main]
     tags: ['v*']
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -11,7 +12,26 @@ permissions:
   packages: write
 
 jobs:
-  docker:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run check
+
+      - run: npm test
+
+  build:
+    needs: test
+    # Skip image publish on PRs — only push to main + tags + manual go to GHCR.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
