@@ -1,34 +1,12 @@
-import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api } from '@kubernetes/client-node';
-
-// Single in-cluster KubeConfig — picks up the SA token + cert from
-// /var/run/secrets/kubernetes.io/serviceaccount/. The pod's SA is
-// `platform-dash` with the cluster RBAC declared in the platform repo
-// (modules/component → cluster_role_rules).
-let kc: KubeConfig | null = null;
-
-function getKubeConfig(): KubeConfig {
-	if (kc) return kc;
-	kc = new KubeConfig();
-	try {
-		kc.loadFromCluster();
-	} catch (err) {
-		// Local dev fallback — uses ~/.kube/config when running outside k8s.
-		// Production pods always hit the cluster branch above.
-		console.warn('k8s: in-cluster load failed, falling back to default kubeconfig', err);
-		kc.loadFromDefault();
-	}
-	return kc;
-}
-
-export const core = (): CoreV1Api => getKubeConfig().makeApiClient(CoreV1Api);
-export const apps = (): AppsV1Api => getKubeConfig().makeApiClient(AppsV1Api);
-export const batch = (): BatchV1Api => getKubeConfig().makeApiClient(BatchV1Api);
-
 // Tiny human-friendly age-since helper. The k8s API surfaces every
 // timestamp as ISO 8601, but operators read "3d", "12m" faster than
 // raw RFC strings. Inputs may be Date | string | undefined; missing
 // values fall through to "—" so the UI never explodes on a partial
 // fixture.
+//
+// Pure function, no Node deps — safe to import from .svelte components.
+// The k8s API client lives in `k8s.server.ts` (SvelteKit's `.server.ts`
+// suffix keeps it out of the client bundle).
 export function age(ts: Date | string | undefined): string {
 	if (!ts) return '—';
 	const t = typeof ts === 'string' ? new Date(ts) : ts;

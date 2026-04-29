@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { core, apps } from '$lib/k8s';
+import { core, apps } from '$lib/k8s.server';
 
 export type WorkloadRow = {
 	namespace: string;
