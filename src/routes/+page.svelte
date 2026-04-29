@@ -9,9 +9,11 @@
 <p>Operator dashboard for the k3s platform — tenants, services, infrastructure.</p>
 
 {#if session?.user}
-	<p>Signed in as <strong>{session.user.email ?? session.user.name}</strong>.</p>
-	<p><a href="/profile">View profile</a></p>
+	<p>
+		Signed in as <strong>{session.user.email ?? session.user.name}</strong>.
+	</p>
+	<p><a href="/profile">View profile</a> · <a href="/settings">Settings</a></p>
 {:else}
-	<p>Sign in with your Zitadel account to get started.</p>
+	<p class="muted">Sign in with your Zitadel account to get started.</p>
 	<button onclick={() => signIn('zitadel')}>Sign in</button>
 {/if}

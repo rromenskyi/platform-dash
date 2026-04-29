@@ -10,9 +10,20 @@
 <h2>Tokens</h2>
 <details>
 	<summary>id_token</summary>
-	<pre style="overflow-x:auto;">{data.session?.idToken ?? '(missing)'}</pre>
+	<pre>{data.session?.idToken ?? '(missing)'}</pre>
 </details>
 <details>
 	<summary>access_token</summary>
-	<pre style="overflow-x:auto;">{data.session?.accessToken ?? '(missing)'}</pre>
+	<pre>{data.session?.accessToken ?? '(missing)'}</pre>
 </details>
+
+<style>
+	details { margin: 0.6rem 0; }
+	summary {
+		cursor: pointer;
+		color: var(--fg-soft);
+		padding: 0.4rem 0;
+	}
+	summary:hover { color: var(--fg); }
+	pre { white-space: pre-wrap; word-break: break-all; }
+</style>
