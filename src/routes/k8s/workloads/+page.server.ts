@@ -19,68 +19,90 @@ export const load: PageServerLoad = async (event) => {
 	}
 
 	const rows: WorkloadRow[] = [];
-	let error: string | null = null;
+	const errors: string[] = [];
 
-	try {
-		const [podsRes, depsRes, ssRes] = await Promise.all([
-			core().listPodForAllNamespaces(),
-			apps().listDeploymentForAllNamespaces(),
-			apps().listStatefulSetForAllNamespaces()
-		]);
+	// Independent fetches — one failing kind shouldn't blank the
+	// whole table. Each block walks its own list under its own
+	// try/catch and pushes any error onto a rolled-up banner.
+	await Promise.all([
+		(async () => {
+			try {
+				const res = await core().listPodForAllNamespaces();
+				for (const p of res.items) {
+					const containers = p.status?.containerStatuses ?? [];
+					const ready = containers.filter((c) => c.ready).length;
+					const total = containers.length || (p.spec?.containers?.length ?? 0);
+					const restarts = containers.reduce((acc, c) => acc + (c.restartCount ?? 0), 0);
+					rows.push({
+						namespace: p.metadata?.namespace ?? '?',
+						name: p.metadata?.name ?? '?',
+						kind: 'Pod',
+						ready: `${ready}/${total}`,
+						status: p.status?.phase ?? '?',
+						restarts,
+						creationTimestamp: p.metadata?.creationTimestamp
+							? new Date(p.metadata.creationTimestamp).toISOString()
+							: undefined
+					});
+				}
+			} catch (err) {
+				console.error('list pods failed', err);
+				errors.push(`pods: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		})(),
+		(async () => {
+			try {
+				const res = await apps().listDeploymentForAllNamespaces();
+				for (const d of res.items) {
+					const total = d.spec?.replicas ?? 0;
+					const ready = d.status?.readyReplicas ?? 0;
+					rows.push({
+						namespace: d.metadata?.namespace ?? '?',
+						name: d.metadata?.name ?? '?',
+						kind: 'Deployment',
+						ready: `${ready}/${total}`,
+						status: ready === total ? 'Ready' : 'Pending',
+						restarts: 0,
+						creationTimestamp: d.metadata?.creationTimestamp
+							? new Date(d.metadata.creationTimestamp).toISOString()
+							: undefined
+					});
+				}
+			} catch (err) {
+				console.error('list deployments failed', err);
+				errors.push(`deployments: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		})(),
+		(async () => {
+			try {
+				const res = await apps().listStatefulSetForAllNamespaces();
+				for (const s of res.items) {
+					const total = s.spec?.replicas ?? 0;
+					const ready = s.status?.readyReplicas ?? 0;
+					rows.push({
+						namespace: s.metadata?.namespace ?? '?',
+						name: s.metadata?.name ?? '?',
+						kind: 'StatefulSet',
+						ready: `${ready}/${total}`,
+						status: ready === total ? 'Ready' : 'Pending',
+						restarts: 0,
+						creationTimestamp: s.metadata?.creationTimestamp
+							? new Date(s.metadata.creationTimestamp).toISOString()
+							: undefined
+					});
+				}
+			} catch (err) {
+				console.error('list statefulsets failed', err);
+				errors.push(`statefulsets: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		})()
+	]);
 
-		for (const p of podsRes.items) {
-			const containers = p.status?.containerStatuses ?? [];
-			const ready = containers.filter((c) => c.ready).length;
-			const total = containers.length || (p.spec?.containers?.length ?? 0);
-			const restarts = containers.reduce((acc, c) => acc + (c.restartCount ?? 0), 0);
-			rows.push({
-				namespace: p.metadata?.namespace ?? '?',
-				name: p.metadata?.name ?? '?',
-				kind: 'Pod',
-				ready: `${ready}/${total}`,
-				status: p.status?.phase ?? '?',
-				restarts,
-				creationTimestamp: p.metadata?.creationTimestamp?.toString()
-			});
-		}
+	rows.sort((a, b) => {
+		if (a.namespace !== b.namespace) return a.namespace.localeCompare(b.namespace);
+		if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
+		return a.name.localeCompare(b.name);
+	});
 
-		for (const d of depsRes.items) {
-			const total = d.spec?.replicas ?? 0;
-			const ready = d.status?.readyReplicas ?? 0;
-			rows.push({
-				namespace: d.metadata?.namespace ?? '?',
-				name: d.metadata?.name ?? '?',
-				kind: 'Deployment',
-				ready: `${ready}/${total}`,
-				status: ready === total ? 'Ready' : 'Pending',
-				restarts: 0,
-				creationTimestamp: d.metadata?.creationTimestamp?.toString()
-			});
-		}
-
-		for (const s of ssRes.items) {
-			const total = s.spec?.replicas ?? 0;
-			const ready = s.status?.readyReplicas ?? 0;
-			rows.push({
-				namespace: s.metadata?.namespace ?? '?',
-				name: s.metadata?.name ?? '?',
-				kind: 'StatefulSet',
-				ready: `${ready}/${total}`,
-				status: ready === total ? 'Ready' : 'Pending',
-				restarts: 0,
-				creationTimestamp: s.metadata?.creationTimestamp?.toString()
-			});
-		}
-
-		rows.sort((a, b) => {
-			if (a.namespace !== b.namespace) return a.namespace.localeCompare(b.namespace);
-			if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
-			return a.name.localeCompare(b.name);
-		});
-	} catch (err) {
-		console.error('workloads load failed', err);
-		error = err instanceof Error ? err.message : String(err);
-	}
-
-	return { session, rows, error };
+	return { session, rows, error: errors.length ? errors.join('; ') : null };
 };
