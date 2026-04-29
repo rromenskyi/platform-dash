@@ -5,15 +5,13 @@
 	let session = $derived(page.data.session);
 </script>
 
-<h1>platform</h1>
-<p>Operator dashboard for the k3s platform — tenants, services, infrastructure.</p>
-
 {#if session?.user}
-	<p>
-		Signed in as <strong>{session.user.email ?? session.user.name}</strong>.
-	</p>
-	<p><a href="/profile">View profile</a> · <a href="/settings">Settings</a></p>
+	<h1>platform</h1>
+	<p>Operator dashboard for the k3s platform.</p>
+	<p><a href="/k8s">Open K8s overview →</a></p>
 {:else}
-	<p class="muted">Sign in with your Zitadel account to get started.</p>
+	<h1>platform</h1>
+	<p class="muted">Operator dashboard for the k3s platform.</p>
+	<p>Sign in with your Zitadel account to get started.</p>
 	<button onclick={() => signIn('zitadel')}>Sign in</button>
 {/if}
