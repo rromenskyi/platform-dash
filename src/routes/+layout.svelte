@@ -23,9 +23,19 @@
 		}
 	];
 
+	const allHrefs = $derived(nav.flatMap((s) => s.items.map((i) => i.href)));
+
 	function isActive(href: string): boolean {
-		// Exact match for index pages, prefix-match for subpages.
-		return pathname === href || (href !== '/' && pathname.startsWith(href + '/'));
+		// The most-specific matching href wins. Pure prefix-matching
+		// would light up `/k8s` (Overview) alongside `/k8s/workloads`
+		// because the latter starts with the former; this keeps only
+		// the longest match active.
+		const matches = allHrefs.filter(
+			(h) => pathname === h || (h !== '/' && pathname.startsWith(h + '/'))
+		);
+		if (matches.length === 0) return false;
+		const longest = matches.reduce((a, b) => (b.length > a.length ? b : a));
+		return href === longest;
 	}
 </script>
 
