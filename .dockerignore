@@ -1,0 +1,14 @@
+node_modules
+.svelte-kit
+build
+.git
+.gitignore
+.github
+.env
+.env.*
+!.env.example
+README.md
+*.md
+.idea
+.vscode
+.DS_Store
