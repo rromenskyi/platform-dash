@@ -26,7 +26,7 @@ import { defaultCluster } from './clusters.server';
 // read rule — narrowing to specific resource_names would require
 // per-namespace Roles which the platform module doesn't ship yet.
 
-export type DbKind = 'postgres' | 'redis';
+export type DbKind = 'postgres' | 'redis' | 'mysql';
 
 export type DbTarget = {
 	name: string;

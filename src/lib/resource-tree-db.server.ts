@@ -17,12 +17,14 @@ export function buildDbTree(): ResourceNode[] {
 	}
 
 	const groups: ResourceNode[] = [];
-	for (const kind of ['postgres', 'redis']) {
+	const labelOf = (k: string) =>
+		k === 'postgres' ? 'Postgres' : k === 'mysql' ? 'MySQL' : 'Redis';
+	for (const kind of ['postgres', 'mysql', 'redis']) {
 		const items = byKind.get(kind);
 		if (!items || items.length === 0) continue;
 		groups.push({
 			id: `db/${kind}`,
-			label: kind === 'postgres' ? 'Postgres' : 'Redis',
+			label: labelOf(kind),
 			meta: { family: 'db', kind },
 			children: () =>
 				items.map((t) => ({

@@ -4,7 +4,7 @@ import { ensureFresh, listTargets, safeHost } from '$lib/db-targets.server';
 
 export type DbCard = {
 	name: string;
-	kind: 'postgres' | 'redis';
+	kind: 'postgres' | 'redis' | 'mysql';
 	cluster?: string;
 	label: string;
 	host: string;

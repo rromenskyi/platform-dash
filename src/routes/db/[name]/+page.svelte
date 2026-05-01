@@ -168,6 +168,45 @@
 			<p class="muted small">Redis {s.version}{#if s.mode}· mode <code>{s.mode}</code>{/if}</p>
 		{/if}
 	{/if}
+{:else if data.detail.kind === 'mysql'}
+	{@const s = data.detail.stats}
+	{#if !s.ok}
+		<p class="error">MySQL: {s.error}</p>
+	{:else}
+		{@const hitPct = s.bufferPoolHitRate !== undefined ? Math.round(s.bufferPoolHitRate * 100) : null}
+		<section class="stats">
+			<div class="stat"><span class="label">Total size</span><span class="value">{fmtBytes(s.totalBytes)}</span></div>
+			<div class="stat"><span class="label">Connections</span><span class="value">{s.connections.current}<span class="of">/{s.connections.max}</span></span></div>
+			<div class="stat"><span class="label">Slow queries</span><span class="value" class:warn={s.slowQueries > 0}>{s.slowQueries}</span></div>
+			{#if hitPct !== null}
+				<div class="stat"><span class="label">Buffer hit rate</span><span class="value">{hitPct}%</span></div>
+			{/if}
+			<div class="stat"><span class="label">Uptime</span><span class="value">{fmtUptime(s.uptimeSec)}</span></div>
+		</section>
+
+		<section class="card">
+			<h2>Databases</h2>
+			{#if s.dbs.length === 0}
+				<p class="muted small">No accessible databases.</p>
+			{:else}
+				<table>
+					<thead><tr><th>Name</th><th class="num">Size</th></tr></thead>
+					<tbody>
+						{#each s.dbs as d}
+							<tr>
+								<td class="mono">{d.name}</td>
+								<td class="num">{fmtBytes(d.bytes)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+		</section>
+
+		{#if s.version}
+			<p class="muted small">MySQL <code>{s.version}</code></p>
+		{/if}
+	{/if}
 {/if}
 
 <style>
@@ -184,6 +223,7 @@
 
 	.kind { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 4px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
 	.kind-postgres { color: #93c5fd; border: 1px solid #93c5fd; }
+	.kind-mysql { color: #fcd34d; border: 1px solid #fcd34d; }
 	.kind-redis { color: #fb7185; border: 1px solid #fb7185; }
 
 	code { font-family: var(--font-mono); font-size: 0.85em; color: var(--fg); }

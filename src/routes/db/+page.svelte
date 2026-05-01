@@ -87,6 +87,7 @@
 		letter-spacing: 0.05em;
 	}
 	.kind-postgres { color: #93c5fd; border: 1px solid #93c5fd; }
+	.kind-mysql { color: #fcd34d; border: 1px solid #fcd34d; }
 	.kind-redis { color: #fb7185; border: 1px solid #fb7185; }
 
 	.host {
