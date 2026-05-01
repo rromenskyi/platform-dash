@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { apiextensions, customObjects } from '$lib/k8s.server';
+import { time } from '$lib/k8s-metrics.server';
 
 function pickServingVersion(
 	versions:
@@ -50,7 +51,9 @@ export const load: PageServerLoad = async (event) => {
 	let servingVersion: string | null = null;
 
 	try {
-		const crd = await apiextensions().readCustomResourceDefinition({ name });
+		const crd = await time('readCustomResourceDefinition', () =>
+			apiextensions().readCustomResourceDefinition({ name })
+		);
 		group = crd.spec.group;
 		plural = crd.spec.names.plural;
 		scope = crd.spec.scope;
@@ -70,19 +73,23 @@ export const load: PageServerLoad = async (event) => {
 	try {
 		const res =
 			scope === 'Namespaced'
-				? await customObjects().getNamespacedCustomObject({
-						group,
-						version: servingVersion,
-						namespace: ns,
-						plural,
-						name: n
-					})
-				: await customObjects().getClusterCustomObject({
-						group,
-						version: servingVersion,
-						plural,
-						name: n
-					});
+				? await time('getNamespacedCustomObject', () =>
+						customObjects().getNamespacedCustomObject({
+							group,
+							version: servingVersion,
+							namespace: ns,
+							plural,
+							name: n
+						})
+					)
+				: await time('getClusterCustomObject', () =>
+						customObjects().getClusterCustomObject({
+							group,
+							version: servingVersion,
+							plural,
+							name: n
+						})
+					);
 		object = clean(res as Record<string, unknown>);
 	} catch (err) {
 		console.error('get custom object failed', err);

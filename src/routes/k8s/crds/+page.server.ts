@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { apiextensions } from '$lib/k8s.server';
+import { time } from '$lib/k8s-metrics.server';
 
 export type CrdRow = {
 	name: string;
@@ -34,7 +35,9 @@ export const load: PageServerLoad = async (event) => {
 	let error: string | null = null;
 
 	try {
-		const res = await apiextensions().listCustomResourceDefinition();
+		const res = await time('listCustomResourceDefinition', () =>
+			apiextensions().listCustomResourceDefinition()
+		);
 		rows = res.items.map((c) => ({
 			name: c.metadata?.name ?? '?',
 			group: c.spec.group,

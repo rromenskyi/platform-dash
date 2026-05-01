@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core, apps } from '$lib/k8s.server';
+import { time } from '$lib/k8s-metrics.server';
 
 export type WorkloadRow = {
 	namespace: string;
@@ -27,7 +28,7 @@ export const load: PageServerLoad = async (event) => {
 	await Promise.all([
 		(async () => {
 			try {
-				const res = await core().listPodForAllNamespaces();
+				const res = await time('listPodForAllNamespaces', () => core().listPodForAllNamespaces());
 				for (const p of res.items) {
 					const containers = p.status?.containerStatuses ?? [];
 					const ready = containers.filter((c) => c.ready).length;
@@ -52,7 +53,9 @@ export const load: PageServerLoad = async (event) => {
 		})(),
 		(async () => {
 			try {
-				const res = await apps().listDeploymentForAllNamespaces();
+				const res = await time('listDeploymentForAllNamespaces', () =>
+					apps().listDeploymentForAllNamespaces()
+				);
 				for (const d of res.items) {
 					const total = d.spec?.replicas ?? 0;
 					const ready = d.status?.readyReplicas ?? 0;
@@ -75,7 +78,9 @@ export const load: PageServerLoad = async (event) => {
 		})(),
 		(async () => {
 			try {
-				const res = await apps().listStatefulSetForAllNamespaces();
+				const res = await time('listStatefulSetForAllNamespaces', () =>
+					apps().listStatefulSetForAllNamespaces()
+				);
 				for (const s of res.items) {
 					const total = s.spec?.replicas ?? 0;
 					const ready = s.status?.readyReplicas ?? 0;
