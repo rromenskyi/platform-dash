@@ -4,6 +4,7 @@
 	import { onDestroy } from 'svelte';
 	import { createLiveList } from '$lib/live-list.svelte';
 	import type { NamespaceRow } from './+page.server';
+	import KubectlMenu from '$lib/KubectlMenu.svelte';
 
 	let { data } = $props();
 	let q = $state('');
@@ -67,6 +68,7 @@
 					<a class="act" href="/k8s/{data.cluster}/workloads?ns={encodeURIComponent(n.name)}">workloads</a>
 					<a class="act" href="/k8s/{data.cluster}/configmaps?ns={encodeURIComponent(n.name)}">cm</a>
 					<a class="act" href="/k8s/{data.cluster}/secrets?ns={encodeURIComponent(n.name)}">secrets</a>
+					<KubectlMenu target={{ cluster: data.cluster, kind: 'Namespace', name: n.name }} />
 				</td>
 			</tr>
 		{/each}

@@ -4,6 +4,7 @@ import { defaultCluster } from '$lib/clusters.server';
 import { materialize } from '$lib/resource';
 import { buildAllTrees } from '$lib/resource-tree-k8s.server';
 import { ensureFresh as ensureDbTargetsFresh } from '$lib/db-targets.server';
+import { snapshot as k8sMetricsSnapshot } from '$lib/k8s-metrics.server';
 
 // Surface the Auth.js session on every page via $page.data.session.
 // Keeping this in a layout (not per-page) means the topbar can show
@@ -25,11 +26,22 @@ export const load: LayoutServerLoad = async (event) => {
 		await ensureDbTargetsFresh();
 		tree = await materialize(buildAllTrees());
 	}
+	// Lightweight snapshot for the topbar status pill — only counts +
+	// p95 + recent error count. Cheap (in-memory ring snapshot).
+	const m = reader ? k8sMetricsSnapshot() : null;
+	const apiHealth = m
+		? {
+				count: m.count,
+				errors: m.errors,
+				p95: m.p95
+			}
+		: null;
 	return {
 		session,
 		canRead: reader,
 		canWrite: canWrite(session),
 		defaultCluster: defaultCluster(),
-		tree
+		tree,
+		apiHealth
 	};
 };

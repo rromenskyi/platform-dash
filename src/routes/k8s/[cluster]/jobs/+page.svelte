@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
 	import { invalidateAll } from '$app/navigation';
+	import KubectlMenu from '$lib/KubectlMenu.svelte';
 	let { data } = $props();
 	let q = $state('');
 	const filtered = $derived(
@@ -22,7 +23,7 @@
 <p class="muted small">{filtered.length} of {data.rows.length}</p>
 
 <table>
-	<thead><tr><th>Namespace</th><th>Name</th><th>Completions</th><th class="num">Active</th><th class="num">Failed</th><th>Started</th><th>Finished</th></tr></thead>
+	<thead><tr><th>Namespace</th><th>Name</th><th>Completions</th><th class="num">Active</th><th class="num">Failed</th><th>Started</th><th>Finished</th><th>Actions</th></tr></thead>
 	<tbody>
 		{#each filtered as r}
 			<tr class:bad={r.failed > 0} class:active={r.active > 0}>
@@ -33,6 +34,7 @@
 				<td class="num" class:bad-cell={r.failed > 0}>{r.failed || ''}</td>
 				<td>{age(r.startTime)}</td>
 				<td>{r.completionTime ? age(r.completionTime) : '—'}</td>
+				<td><KubectlMenu target={{ cluster: data.cluster, kind: 'Job', namespace: r.namespace, name: r.name }} /></td>
 			</tr>
 		{/each}
 	</tbody>

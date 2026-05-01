@@ -110,6 +110,18 @@
 	<a class="brand" href="/">platform</a>
 	<nav class="topnav">
 		{#if session?.user && canRead}
+			{#if page.data.apiHealth}
+				{@const h = page.data.apiHealth as { count: number; errors: number; p95: number }}
+				<a
+					class="apipill"
+					class:bad={h.errors > 0}
+					href={canWrite ? '/admin/metrics' : undefined}
+					title="k8s API: {h.count} samples, {h.errors} errors, p95 {h.p95}ms"
+				>
+					<span class="dot"></span>
+					API {h.p95}ms{#if h.errors > 0} · {h.errors}✕{/if}
+				</a>
+			{/if}
 			<a href="/incident" class="incident" class:active={pathname === '/incident'} title="Snapshot of failing pods, bad nodes, warnings">⚠ Incident</a>
 		{/if}
 		<a href="/profile" class:active={pathname === '/profile' || pathname.startsWith('/profile/')}>Profile</a>
@@ -237,6 +249,29 @@
 	}
 	.topnav a.incident:hover { background: rgba(252, 211, 77, 0.08); }
 	.topnav a.incident.active { background: rgba(252, 211, 77, 0.15); }
+
+	.topnav .apipill {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.78rem;
+		padding: 0.18rem 0.55rem;
+		border: 1px solid var(--rule);
+		border-radius: 4px;
+		color: var(--fg-soft);
+		font-family: var(--font-mono);
+	}
+	.topnav .apipill .dot {
+		display: inline-block;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: #6ee7b7;
+		box-shadow: 0 0 4px #6ee7b7;
+	}
+	.topnav .apipill.bad { border-color: #fb7185; color: #fb7185; }
+	.topnav .apipill.bad .dot { background: #fb7185; box-shadow: 0 0 4px #fb7185; }
+	.topnav .apipill:hover { color: var(--fg); border-color: var(--muted); }
 
 	.muted {
 		color: var(--muted);

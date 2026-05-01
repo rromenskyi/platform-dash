@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { createLiveList } from '$lib/live-list.svelte';
 	import type { SvcRow } from './+page.server';
+	import KubectlMenu from '$lib/KubectlMenu.svelte';
 
 	let { data } = $props();
 	let q = $state('');
@@ -59,7 +60,7 @@
 <p class="muted small">{filtered.length} of {live.rows.length}</p>
 
 <table>
-	<thead><tr><th>Namespace</th><th>Name</th><th>Type</th><th>ClusterIP</th><th>External</th><th>Ports</th><th>Age</th></tr></thead>
+	<thead><tr><th>Namespace</th><th>Name</th><th>Type</th><th>ClusterIP</th><th>External</th><th>Ports</th><th>Age</th><th>Actions</th></tr></thead>
 	<tbody>
 		{#each filtered as r}
 			<tr>
@@ -70,6 +71,7 @@
 				<td class="mono small">{r.externalIP}</td>
 				<td class="mono small">{r.ports}</td>
 				<td>{age(r.creationTimestamp)}</td>
+				<td><KubectlMenu target={{ cluster: data.cluster, kind: 'Service', namespace: r.namespace, name: r.name }} /></td>
 			</tr>
 		{/each}
 	</tbody>
