@@ -38,6 +38,9 @@ export const load: PageServerLoad = async (event) => {
 	let shortNames: string[] = [];
 	let versions: CrdVersionInfo[] = [];
 	let creationTimestamp: string | undefined;
+	// openAPIV3Schema for the storage version, surfaced raw to the
+	// page so the schema viewer can render a tree without re-fetching.
+	let storageSchema: unknown = null;
 
 	try {
 		const crd = await time(`${cluster}/readCustomResourceDefinition`, () =>
@@ -54,6 +57,8 @@ export const load: PageServerLoad = async (event) => {
 			storage: v.storage,
 			hasSchema: !!v.schema?.openAPIV3Schema
 		}));
+		const storage = crd.spec.versions?.find((v) => v.storage) ?? crd.spec.versions?.[0];
+		storageSchema = storage?.schema?.openAPIV3Schema ?? null;
 		creationTimestamp = crd.metadata?.creationTimestamp
 			? new Date(crd.metadata.creationTimestamp).toISOString()
 			: undefined;
@@ -143,7 +148,8 @@ export const load: PageServerLoad = async (event) => {
 			shortNames,
 			versions,
 			creationTimestamp,
-			servingVersion
+			servingVersion,
+			storageSchema
 		},
 		instances,
 		instancesError
