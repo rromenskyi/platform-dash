@@ -14,6 +14,7 @@ declare module '@auth/core/types' {
 	interface Session {
 		accessToken?: string;
 		idToken?: string;
+		roles?: string[];
 	}
 }
 
@@ -21,6 +22,7 @@ declare module '@auth/core/jwt' {
 	interface JWT {
 		accessToken?: string;
 		idToken?: string;
+		roles?: string[];
 	}
 }
 

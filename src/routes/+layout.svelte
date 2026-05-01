@@ -7,6 +7,11 @@
 	let { children } = $props();
 	let session = $derived(page.data.session);
 	let pathname = $derived(page.url.pathname);
+	let canRead = $derived(!!page.data.canRead);
+	let canWrite = $derived(!!page.data.canWrite);
+	// Single primary role label for the topbar — admin trumps sre when
+	// a user holds both. Hidden if neither.
+	let roleLabel = $derived(canWrite ? 'admin' : canRead ? 'sre' : '');
 
 	// Sidebar nav. K8s explorer is the primary surface; profile +
 	// settings live in the topbar so the sidebar stays focused on
@@ -51,6 +56,11 @@
 		<a href="/profile" class:active={isActive('/profile')}>Profile</a>
 		<a href="/settings" class:active={isActive('/settings')}>Settings</a>
 		{#if session?.user}
+			{#if roleLabel}
+				<span class="role role-{roleLabel}">{roleLabel}</span>
+			{:else}
+				<span class="role role-none" title="Sign-in succeeded but no platform_admin or platform_sre role assigned">no role</span>
+			{/if}
 			<span class="muted">{session.user.email ?? session.user.name}</span>
 			<button class="ghost" onclick={() => signOut()}>Sign out</button>
 		{:else}
@@ -60,7 +70,7 @@
 </header>
 
 <div class="layout">
-	{#if session?.user}
+	{#if session?.user && canRead}
 		<aside class="sidebar">
 			{#each nav as group}
 				<div class="group">
@@ -117,6 +127,21 @@
 		color: var(--muted);
 		font-size: 0.9rem;
 	}
+
+	.role {
+		display: inline-block;
+		padding: 0.1rem 0.55rem;
+		border-radius: 4px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		border: 1px solid var(--rule);
+		background: var(--bg-elev);
+	}
+	.role-admin { color: #6ee7b7; border-color: #6ee7b7; }
+	.role-sre { color: #a5b4fc; border-color: #a5b4fc; }
+	.role-none { color: #fb7185; border-color: #fb7185; }
 
 	.layout {
 		display: grid;

@@ -5,6 +5,19 @@
 	let { data } = $props();
 
 	let refreshing = $state(false);
+	let nsFilter = $state('');
+
+	const distinctNamespaces = $derived(
+		Array.from(new Set(data.instances.map((i) => i.namespace).filter(Boolean) as string[])).sort()
+	);
+
+	const filteredInstances = $derived(
+		data.instances.filter((i) => {
+			if (!nsFilter) return true;
+			const ns = i.namespace ?? '';
+			return ns.toLowerCase().includes(nsFilter.toLowerCase());
+		})
+	);
 
 	async function refresh() {
 		if (refreshing) return;
@@ -75,28 +88,49 @@
 	{:else if data.instances.length === 0}
 		<p class="muted small">No instances of this kind in the cluster.</p>
 	{:else}
-		<p class="muted small">{data.instances.length} instance{data.instances.length === 1 ? '' : 's'}</p>
+		{#if data.crd.scope === 'Namespaced' && distinctNamespaces.length > 1}
+			<div class="ns-controls">
+				<input
+					class="ns-search"
+					type="search"
+					list="ns-options-{data.crd.name}"
+					bind:value={nsFilter}
+					placeholder="Filter by namespace…"
+				/>
+				<datalist id="ns-options-{data.crd.name}">
+					{#each distinctNamespaces as ns}
+						<option value={ns}></option>
+					{/each}
+				</datalist>
+				{#if nsFilter}
+					<button class="clear" onclick={() => (nsFilter = '')} title="Clear">×</button>
+				{/if}
+			</div>
+		{/if}
+		<p class="muted small">
+			{filteredInstances.length} of {data.instances.length} instance{data.instances.length === 1 ? '' : 's'}
+		</p>
 		<table>
 			<thead>
 				<tr>
+					<th>Name</th>
 					{#if data.crd.scope === 'Namespaced'}
 						<th>Namespace</th>
 					{/if}
-					<th>Name</th>
 					<th>Age</th>
 				</tr>
 			</thead>
 			<tbody>
-				{#each data.instances as i}
+				{#each filteredInstances as i}
 					<tr>
-						{#if data.crd.scope === 'Namespaced'}
-							<td>{i.namespace ?? '—'}</td>
-						{/if}
 						<td class="mono">
 							<a
 								href="/k8s/crds/{data.crd.name}/instance?ns={encodeURIComponent(i.namespace ?? '')}&n={encodeURIComponent(i.name)}"
 							>{i.name}</a>
 						</td>
+						{#if data.crd.scope === 'Namespaced'}
+							<td>{i.namespace ?? '—'}</td>
+						{/if}
 						<td>{age(i.creationTimestamp)}</td>
 					</tr>
 				{/each}
@@ -186,6 +220,40 @@
 	td.mono { font-family: var(--font-mono); font-size: 0.85em; color: var(--fg); }
 	td.mono a { color: var(--fg); }
 	td.mono a:hover { color: var(--accent); }
+
+	.ns-controls {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		margin: 0.5rem 0 0.75rem;
+	}
+	.ns-search {
+		flex: 1 1 240px;
+		max-width: 360px;
+		padding: 0.4rem 0.7rem;
+		background: var(--bg);
+		border: 1px solid var(--rule);
+		border-radius: 6px;
+		color: var(--fg);
+		font: inherit;
+		font-size: 0.85rem;
+	}
+	.ns-search:focus {
+		outline: none;
+		border-color: var(--accent);
+	}
+	.clear {
+		font: inherit;
+		font-size: 1rem;
+		line-height: 1;
+		padding: 0.2rem 0.55rem;
+		border: 1px solid var(--rule);
+		background: transparent;
+		color: var(--fg-soft);
+		border-radius: 6px;
+		cursor: pointer;
+	}
+	.clear:hover { color: var(--fg); border-color: var(--muted); }
 
 	code {
 		font-family: var(--font-mono);
