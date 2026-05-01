@@ -31,8 +31,8 @@
 </script>
 
 <p class="crumb">
-	<a href="/k8s/crds">CustomResourceDefinitions</a> /
-	<a href="/k8s/crds/{data.crd.name}">{data.crd.kind}</a> /
+	<a href="/k8s/{data.cluster}/crds">CustomResourceDefinitions</a> /
+	<a href="/k8s/{data.cluster}/crds/{data.crd.name}">{data.crd.kind}</a> /
 	<span>{data.instance.namespace ? `${data.instance.namespace}/` : ''}{data.instance.name}</span>
 </p>
 

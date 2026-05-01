@@ -1,9 +1,10 @@
 <script lang="ts">
 	let { data } = $props();
 	const s = $derived(data.summary);
+	const c = $derived(data.cluster);
 </script>
 
-<h1>K8s Overview</h1>
+<h1>K8s Overview <span class="cluster-tag">{c}</span></h1>
 <p class="muted">Cluster-wide health rollup, with deeplinks into the per-resource views.</p>
 
 <section class="stats">
@@ -39,22 +40,22 @@
 </section>
 
 <section class="grid">
-	<a class="card" href="/k8s/workloads">
+	<a class="card" href="/k8s/{c}/workloads">
 		<h2>Workloads →</h2>
 		<p>Pods, Deployments, StatefulSets across every namespace.</p>
 	</a>
 
-	<a class="card" href="/k8s/nodes">
+	<a class="card" href="/k8s/{c}/nodes">
 		<h2>Nodes →</h2>
 		<p>Node capacity, allocatable, taints, labels, hosted Pods.</p>
 	</a>
 
-	<a class="card" href="/k8s/crds">
+	<a class="card" href="/k8s/{c}/crds">
 		<h2>CRDs →</h2>
 		<p>CustomResourceDefinitions and their instances across the cluster.</p>
 	</a>
 
-	<a class="card" href="/k8s/monitoring">
+	<a class="card" href="/k8s/{c}/monitoring">
 		<h2>Monitoring →</h2>
 		<p>Prometheus + Grafana surface — health rollup, latency, errors.</p>
 	</a>
@@ -66,6 +67,22 @@
 </section>
 
 <style>
+	.cluster-tag {
+		display: inline-block;
+		margin-left: 0.5rem;
+		padding: 0.05rem 0.55rem;
+		border-radius: 4px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: lowercase;
+		letter-spacing: 0.04em;
+		background: var(--bg-elev);
+		color: var(--accent);
+		border: 1px solid var(--rule);
+		font-family: var(--font-mono);
+		vertical-align: middle;
+	}
+
 	.stats {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
