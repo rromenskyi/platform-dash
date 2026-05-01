@@ -2,6 +2,34 @@ import { SvelteKitAuth } from '@auth/sveltekit';
 import ZITADEL from '@auth/core/providers/zitadel';
 import { env } from '$env/dynamic/private';
 
+// Decode the payload of a JWT (no signature verify — the token came
+// from our IdP via the OAuth code flow that Auth.js already validated).
+// Returns null on any malformed input so a bad token can't crash login.
+function decodeJwtPayload(jwt: string | undefined): Record<string, unknown> | null {
+	if (!jwt) return null;
+	const parts = jwt.split('.');
+	if (parts.length < 2) return null;
+	try {
+		const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+		const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+		const json = Buffer.from(b64 + pad, 'base64').toString('utf8');
+		return JSON.parse(json);
+	} catch {
+		return null;
+	}
+}
+
+// Zitadel emits the project-roles claim shaped as
+//   { "<roleKey>": { "<orgId>": "<orgPrimaryDomain>" }, ... }
+// We only need the role keys (e.g. "platform_admin", "platform_sre").
+function extractZitadelRoles(idToken: string | undefined): string[] {
+	const payload = decodeJwtPayload(idToken);
+	if (!payload) return [];
+	const claim = payload['urn:zitadel:iam:org:project:roles'];
+	if (!claim || typeof claim !== 'object') return [];
+	return Object.keys(claim);
+}
+
 // Zitadel provider via Auth.js. Three env vars do the wiring:
 //   AUTH_ZITADEL_ISSUER  — `https://id.<your-domain>` (no trailing slash)
 //   AUTH_ZITADEL_ID      — OIDC client_id from Zitadel Application
@@ -26,17 +54,23 @@ export const { handle, signIn, signOut } = SvelteKitAuth({
 	callbacks: {
 		// Surface the id_token + access_token onto the session so
 		// downstream routes can call Zitadel APIs or the sipmesh
-		// backend on behalf of the user.
+		// backend on behalf of the user. Also pull the project roles
+		// claim out of the id_token — Zitadel emits them under
+		// `urn:zitadel:iam:org:project:roles` when the Application has
+		// `id_token_role_assertion = true` (set in the platform repo's
+		// modules/zitadel-app).
 		async jwt({ token, account }) {
 			if (account) {
 				token.accessToken = account.access_token;
 				token.idToken = account.id_token;
+				token.roles = extractZitadelRoles(account.id_token);
 			}
 			return token;
 		},
 		async session({ session, token }) {
 			session.accessToken = token.accessToken as string | undefined;
 			session.idToken = token.idToken as string | undefined;
+			session.roles = (token.roles as string[] | undefined) ?? [];
 			return session;
 		}
 	}
