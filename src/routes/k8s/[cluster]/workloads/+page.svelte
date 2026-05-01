@@ -101,13 +101,94 @@
 		Array.from(new Set(localRows.map((r) => r.status))).sort()
 	);
 
+	// Sort. `chaos` is a synthetic column that surfaces the worst rows
+	// at the top: status weight first (failed/error/crashloop > pending
+	// > running > succeeded), then restart count desc, then ns/name.
+	// Defaults to chaos+desc so the first thing the operator sees on
+	// page load is whatever's blowing up.
+	type SortKey = 'chaos' | 'namespace' | 'kind' | 'name' | 'ready' | 'status' | 'restarts' | 'age';
+	type SortDir = 'asc' | 'desc';
+	let sortKey = $state<SortKey>('chaos');
+	let sortDir = $state<SortDir>('desc');
+
+	function statusWeight(s: string): number {
+		const k = s.toLowerCase();
+		if (k === 'failed' || k === 'error' || k === 'crashloopbackoff' || k === 'imagepullbackoff') return 5;
+		if (k === 'unknown') return 4;
+		if (k === 'pending') return 3;
+		if (k === 'running' || k === 'ready') return 2;
+		if (k === 'succeeded') return 1;
+		return 0;
+	}
+
+	function readyRatio(r: WorkloadRow): number {
+		const [a, b] = r.ready.split('/').map(Number);
+		if (!Number.isFinite(a) || !Number.isFinite(b) || b === 0) return 0;
+		return a / b;
+	}
+
+	function ageMs(r: WorkloadRow): number {
+		return r.creationTimestamp ? Date.parse(r.creationTimestamp) || 0 : 0;
+	}
+
+	function compare(a: WorkloadRow, b: WorkloadRow, key: SortKey): number {
+		switch (key) {
+			case 'chaos': {
+				const sw = statusWeight(b.status) - statusWeight(a.status);
+				if (sw !== 0) return sw;
+				const r = b.restarts - a.restarts;
+				if (r !== 0) return r;
+				const rr = readyRatio(a) - readyRatio(b); // less-ready first
+				if (rr !== 0) return rr;
+				if (a.namespace !== b.namespace) return a.namespace.localeCompare(b.namespace);
+				return a.name.localeCompare(b.name);
+			}
+			case 'namespace':
+				return a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name);
+			case 'kind':
+				return a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name);
+			case 'name':
+				return a.name.localeCompare(b.name);
+			case 'ready':
+				return readyRatio(a) - readyRatio(b);
+			case 'status':
+				return statusWeight(a.status) - statusWeight(b.status) || a.status.localeCompare(b.status);
+			case 'restarts':
+				return a.restarts - b.restarts;
+			case 'age':
+				// Older creationTimestamp = older row; "asc" should mean oldest first
+				return ageMs(a) - ageMs(b);
+		}
+	}
+
+	function setSort(key: SortKey) {
+		if (sortKey === key) {
+			sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+		} else {
+			sortKey = key;
+			// Numeric / chaos columns default to desc (worst first); text to asc.
+			sortDir = key === 'namespace' || key === 'name' || key === 'kind' ? 'asc' : 'desc';
+		}
+	}
+
+	function sortIndicator(key: SortKey): string {
+		if (sortKey !== key) return '';
+		return sortDir === 'asc' ? ' ▲' : ' ▼';
+	}
+
 	const filtered = $derived(
-		localRows.filter((r) => {
-			if (kindFilter !== 'all' && r.kind !== kindFilter) return false;
-			if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-			if (q && !`${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase())) return false;
-			return true;
-		})
+		localRows
+			.filter((r) => {
+				if (kindFilter !== 'all' && r.kind !== kindFilter) return false;
+				if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+				if (q && !`${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase())) return false;
+				return true;
+			})
+			.slice()
+			.sort((a, b) => {
+				const c = compare(a, b, sortKey);
+				return sortDir === 'asc' ? c : -c;
+			})
 	);
 
 	async function refresh() {
@@ -212,16 +293,21 @@
 
 <p class="muted small">{filtered.length} of {localRows.length} resources</p>
 
+<p class="muted small sort-hint">
+	sort: <button class="sort-reset" onclick={() => { sortKey = 'chaos'; sortDir = 'desc'; }} class:active={sortKey === 'chaos'}>chaos</button>
+	{#if sortKey !== 'chaos'}· click any column header to re-sort{/if}
+</p>
+
 <table>
 	<thead>
 		<tr>
-			<th>Namespace</th>
-			<th>Kind</th>
-			<th>Name</th>
-			<th>Ready</th>
-			<th>Status</th>
-			<th>Restarts</th>
-			<th>Age</th>
+			<th class="sortable" onclick={() => setSort('namespace')}>Namespace{sortIndicator('namespace')}</th>
+			<th class="sortable" onclick={() => setSort('kind')}>Kind{sortIndicator('kind')}</th>
+			<th class="sortable" onclick={() => setSort('name')}>Name{sortIndicator('name')}</th>
+			<th class="sortable" onclick={() => setSort('ready')}>Ready{sortIndicator('ready')}</th>
+			<th class="sortable" onclick={() => setSort('status')}>Status{sortIndicator('status')}</th>
+			<th class="sortable" onclick={() => setSort('restarts')}>Restarts{sortIndicator('restarts')}</th>
+			<th class="sortable" onclick={() => setSort('age')}>Age{sortIndicator('age')}</th>
 			{#if canWrite}
 				<th>Actions</th>
 			{/if}
@@ -383,6 +469,29 @@
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 	}
+	th.sortable {
+		cursor: pointer;
+		user-select: none;
+	}
+	th.sortable:hover { color: var(--fg); }
+
+	.sort-hint {
+		font-size: 0.78rem;
+		color: var(--muted);
+		margin: 0.5rem 0 0.5rem;
+	}
+	.sort-reset {
+		font: inherit;
+		font-size: 0.78rem;
+		padding: 0.1rem 0.55rem;
+		border: 1px solid var(--rule);
+		background: transparent;
+		color: var(--fg-soft);
+		border-radius: 4px;
+		cursor: pointer;
+	}
+	.sort-reset:hover { color: var(--fg); border-color: var(--muted); }
+	.sort-reset.active { color: var(--accent); border-color: var(--accent); }
 	td {
 		padding: 0.55rem 0.75rem;
 		border-bottom: 1px solid var(--rule);
