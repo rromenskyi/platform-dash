@@ -31,6 +31,11 @@
 		<span class="value">{s.deployments.ready}<span class="of">/{s.deployments.total}</span></span>
 		<span class="hint">Ready</span>
 	</div>
+	<div class="stat">
+		<span class="label">CRDs</span>
+		<span class="value">{s.crds}</span>
+		<span class="hint">Installed</span>
+	</div>
 </section>
 
 <section class="grid">
@@ -42,6 +47,11 @@
 	<a class="card" href="/k8s/nodes">
 		<h2>Nodes →</h2>
 		<p>Node capacity, allocatable, taints, labels, hosted Pods.</p>
+	</a>
+
+	<a class="card" href="/k8s/crds">
+		<h2>CRDs →</h2>
+		<p>CustomResourceDefinitions and their instances across the cluster.</p>
 	</a>
 
 	<a class="card" href="/k8s/monitoring">
