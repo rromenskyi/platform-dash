@@ -50,6 +50,41 @@
 		<p>Node capacity, allocatable, taints, labels, hosted Pods.</p>
 	</a>
 
+	<a class="card" href="/k8s/{c}/namespaces">
+		<h2>Namespaces →</h2>
+		<p>All namespaces with quick deeplinks into workloads / configmaps / secrets.</p>
+	</a>
+
+	<a class="card" href="/k8s/{c}/services">
+		<h2>Services →</h2>
+		<p>Services with type, cluster/external IP, ports.</p>
+	</a>
+
+	<a class="card" href="/k8s/{c}/ingresses">
+		<h2>Ingresses →</h2>
+		<p>Hosts, paths, backend services, TLS.</p>
+	</a>
+
+	<a class="card" href="/k8s/{c}/configmaps">
+		<h2>ConfigMaps →</h2>
+		<p>List + per-key values.</p>
+	</a>
+
+	<a class="card" href="/k8s/{c}/secrets">
+		<h2>Secrets →</h2>
+		<p>Type, keys, reveal-on-click decoded values (audit-logged).</p>
+	</a>
+
+	<a class="card" href="/k8s/{c}/jobs">
+		<h2>Jobs →</h2>
+		<p>Completion / active / failed counts, start + finish times.</p>
+	</a>
+
+	<a class="card" href="/k8s/{c}/cronjobs">
+		<h2>CronJobs →</h2>
+		<p>Schedule, suspend, last run.</p>
+	</a>
+
 	<a class="card" href="/k8s/{c}/crds">
 		<h2>CRDs →</h2>
 		<p>CustomResourceDefinitions and their instances across the cluster.</p>

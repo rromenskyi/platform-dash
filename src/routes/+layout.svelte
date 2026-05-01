@@ -3,6 +3,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { signIn, signOut } from '@auth/sveltekit/client';
 	import { page } from '$app/state';
+	import type { SerializableNode } from '$lib/resource';
 
 	let { children } = $props();
 	let session = $derived(page.data.session);
@@ -10,82 +11,80 @@
 	let canRead = $derived(!!page.data.canRead);
 	let canWrite = $derived(!!page.data.canWrite);
 	let defaultCluster = $derived((page.data.defaultCluster as string | undefined) ?? 'local');
-	// Single primary role label for the topbar — admin trumps sre when
-	// a user holds both. Hidden if neither.
+	let tree = $derived((page.data.tree as SerializableNode[] | undefined) ?? []);
 	let roleLabel = $derived(canWrite ? 'admin' : canRead ? 'sre' : '');
 
 	// Detect the cluster the user is currently looking at by reading
 	// the second path segment under /k8s/. When they're outside /k8s
-	// (Profile/Settings), fall back to the configured default — that
-	// way clicking "Workloads" from anywhere lands on a real page.
+	// (Profile/Settings), fall back to the configured default — the
+	// tree auto-expands the cluster the user is in (or the default).
 	let currentCluster = $derived.by(() => {
 		const segs = pathname.split('/').filter(Boolean);
 		if (segs[0] === 'k8s' && segs[1]) return segs[1];
 		return defaultCluster;
 	});
 
-	// Sidebar nav. K8s explorer is the primary surface; profile +
-	// settings live in the topbar so the sidebar stays focused on
-	// "what's running". Admin section only renders for canWrite users.
-	// `kind: 'k8s'` items are templated with the active cluster at
-	// render time; admin items are absolute paths.
-	type NavItem = { kind: 'k8s' | 'fixed'; href: string; label: string };
-	type NavGroup = {
-		section: string;
-		items: NavItem[];
-		adminOnly?: boolean;
-	};
-	const nav: NavGroup[] = [
-		{
-			section: 'K8s',
-			items: [
-				{ kind: 'k8s', href: '', label: 'Overview' },
-				{ kind: 'k8s', href: '/workloads', label: 'Workloads' },
-				{ kind: 'k8s', href: '/nodes', label: 'Nodes' },
-				{ kind: 'k8s', href: '/crds', label: 'CRDs' },
-				{ kind: 'k8s', href: '/monitoring', label: 'Monitoring' }
-			]
-		},
-		{
-			section: 'Admin',
-			adminOnly: true,
-			items: [{ kind: 'fixed', href: '/admin/metrics', label: 'k8s API metrics' }]
-		}
-	];
-
-	const visibleNav = $derived(nav.filter((g) => !g.adminOnly || canWrite));
-
 	// Carry the global namespace selection across /k8s/* nav clicks.
-	// Without this, clicking "Workloads" while filtered to ns=foo would
-	// drop the filter. Non-/k8s links (Profile/Settings/Admin) ignore it
-	// because the selector lives only inside the /k8s layout.
 	let currentNs = $derived(page.url.searchParams.get('ns') || '');
 
-	function resolveHref(item: NavItem): string {
-		if (item.kind === 'fixed') return item.href;
-		const base = `/k8s/${currentCluster}${item.href}`;
-		return currentNs ? `${base}?ns=${encodeURIComponent(currentNs)}` : base;
+	function withNs(href: string | undefined): string | undefined {
+		if (!href) return href;
+		if (!currentNs || !href.startsWith('/k8s/')) return href;
+		return `${href}?ns=${encodeURIComponent(currentNs)}`;
 	}
 
-	function isActive(item: NavItem): boolean {
-		if (item.kind === 'fixed') {
-			return pathname === item.href || pathname.startsWith(item.href + '/');
-		}
-		// k8s items: match by sub-path under /k8s/[cluster]/
-		const expected = `/k8s/${currentCluster}${item.href}`;
-		// Most-specific match wins so "Overview" doesn't light up alongside
-		// "Workloads" when at /k8s/foo/workloads.
-		const candidates = nav
-			.flatMap((g) => g.items)
-			.filter((i) => i.kind === 'k8s')
-			.map((i) => `/k8s/${currentCluster}${i.href}`);
-		const matches = candidates.filter(
-			(h) => pathname === h || (h !== '/' && pathname.startsWith(h + '/'))
-		);
+	function isHrefActive(href: string | undefined): boolean {
+		if (!href) return false;
+		// Most-specific match: don't light up parents when a deeper child
+		// is active (overview vs workloads under same cluster).
+		if (pathname === href) return true;
+		// Tree groups (cluster root) match when we're anywhere inside.
+		if (pathname.startsWith(href + '/')) return true;
+		return false;
+	}
+
+	function isHrefSelfActive(href: string | undefined, allHrefs: string[]): boolean {
+		if (!href) return false;
+		const matches = allHrefs.filter((h) => pathname === h || pathname.startsWith(h + '/'));
 		if (matches.length === 0) return false;
 		const longest = matches.reduce((a, b) => (b.length > a.length ? b : a));
-		return expected === longest;
+		return href === longest;
 	}
+
+	// Per-node open state, persisted via Map. Cluster groups default-
+	// open when current; other clusters default-closed. Manual toggles
+	// override defaults thereafter (sticky for the session).
+	let openOverrides = $state<Map<string, boolean>>(new Map());
+	function isOpen(n: SerializableNode): boolean {
+		const override = openOverrides.get(n.id);
+		if (override !== undefined) return override;
+		// Default rule: a node is open if the current pathname falls
+		// inside any of its descendants' hrefs.
+		return nodeContainsActive(n);
+	}
+	function nodeContainsActive(n: SerializableNode): boolean {
+		if (n.href && (pathname === n.href || pathname.startsWith(n.href + '/'))) return true;
+		for (const c of n.children) if (nodeContainsActive(c)) return true;
+		return false;
+	}
+	function toggle(n: SerializableNode) {
+		const cur = isOpen(n);
+		openOverrides.set(n.id, !cur);
+		openOverrides = new Map(openOverrides);
+	}
+
+	// Flat list of every leaf-ish href in the tree — used for the
+	// "longest match wins" active-highlight calculation so leaf nodes
+	// don't all light up at the same depth.
+	function collectLeafHrefs(nodes: SerializableNode[]): string[] {
+		const out: string[] = [];
+		for (const n of nodes) {
+			if (n.href) out.push(n.href);
+			out.push(...collectLeafHrefs(n.children));
+		}
+		return out;
+	}
+	const allHrefs = $derived(collectLeafHrefs(tree));
 </script>
 
 <svelte:head>
@@ -112,21 +111,64 @@
 	</nav>
 </header>
 
+{#snippet treeNode(n: SerializableNode, depth: number)}
+	<li class="tnode" style="--depth: {depth}">
+		<div class="trow">
+			{#if n.children.length > 0}
+				<button class="caret" onclick={() => toggle(n)} aria-label={isOpen(n) ? 'Collapse' : 'Expand'}>
+					{isOpen(n) ? '▾' : '▸'}
+				</button>
+			{:else}
+				<span class="caret-spacer"></span>
+			{/if}
+			{#if n.href}
+				<a class="tlink" class:active={isHrefSelfActive(n.href, allHrefs)} href={withNs(n.href)}>
+					{n.label}
+					{#if n.hint}<span class="hint">{n.hint}</span>{/if}
+				</a>
+			{:else}
+				<button class="tlink as-button" onclick={() => toggle(n)}>
+					{n.label}
+					{#if n.hint}<span class="hint">{n.hint}</span>{/if}
+				</button>
+			{/if}
+		</div>
+		{#if n.children.length > 0 && isOpen(n)}
+			<ul class="tchildren">
+				{#each n.children as c}
+					{@render treeNode(c, depth + 1)}
+				{/each}
+			</ul>
+		{/if}
+	</li>
+{/snippet}
+
 <div class="layout">
 	{#if session?.user && canRead}
 		<aside class="sidebar">
-			{#each visibleNav as group}
+			{#if tree.length > 0}
 				<div class="group">
-					<h3>{group.section}</h3>
-					<ul>
-						{#each group.items as item}
-							<li>
-								<a href={resolveHref(item)} class:active={isActive(item)}>{item.label}</a>
-							</li>
+					<h3>Resources</h3>
+					<ul class="tree">
+						{#each tree as n}
+							{@render treeNode(n, 0)}
 						{/each}
 					</ul>
 				</div>
-			{/each}
+			{/if}
+			{#if canWrite}
+				<div class="group">
+					<h3>Admin</h3>
+					<ul class="tree">
+						<li class="tnode">
+							<div class="trow">
+								<span class="caret-spacer"></span>
+								<a class="tlink" class:active={isHrefActive('/admin/metrics')} href="/admin/metrics">k8s API metrics</a>
+							</div>
+						</li>
+					</ul>
+				</div>
+			{/if}
 		</aside>
 	{/if}
 
@@ -144,7 +186,6 @@
 		border-bottom: 1px solid var(--rule);
 		background: var(--bg);
 	}
-
 	.brand {
 		font-family: var(--font-display);
 		font-weight: 600;
@@ -191,7 +232,6 @@
 		grid-template-columns: minmax(0, 240px) 1fr;
 		min-height: calc(100vh - 64px);
 	}
-
 	.layout:has(.sidebar:empty),
 	.layout:not(:has(.sidebar)) {
 		grid-template-columns: 1fr;
@@ -199,45 +239,78 @@
 
 	.sidebar {
 		border-right: 1px solid var(--rule);
-		padding: 1.25rem 1rem;
+		padding: 1.25rem 0.5rem;
 		background: var(--bg);
 	}
 
-	.group + .group { margin-top: 1.5rem; }
-
+	.group + .group { margin-top: 1.25rem; }
 	.group h3 {
 		font-size: 0.7rem;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
 		color: var(--muted);
 		font-weight: 600;
-		margin: 0 0 0.5rem 0.5rem;
+		margin: 0 0 0.4rem 0.75rem;
 	}
 
-	.group ul {
+	.tree {
 		list-style: none;
 		padding: 0;
 		margin: 0;
+	}
+	.tnode { list-style: none; }
+	.tchildren {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+	}
+	.trow {
 		display: flex;
-		flex-direction: column;
+		align-items: center;
 		gap: 0.1rem;
+		padding-left: calc(var(--depth, 0) * 0.85rem);
 	}
 
-	.group a {
-		display: block;
-		padding: 0.4rem 0.75rem;
+	.caret {
+		font: inherit;
+		font-size: 0.85rem;
+		width: 1.1rem;
+		padding: 0;
+		background: none;
+		border: 0;
+		color: var(--muted);
+		cursor: pointer;
+		text-align: center;
+	}
+	.caret:hover { color: var(--fg); }
+	.caret-spacer { display: inline-block; width: 1.1rem; }
+
+	.tlink {
+		display: flex;
+		flex: 1;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.3rem 0.6rem;
 		border-radius: 6px;
 		color: var(--fg-soft);
-		font-size: 0.92rem;
+		font-size: 0.88rem;
 		transition: background var(--t-fast), color var(--t-fast);
 	}
-	.group a:hover {
-		background: var(--bg-elev);
-		color: var(--fg);
+	.tlink:hover { background: var(--bg-elev); color: var(--fg); }
+	.tlink.active { background: var(--bg-elev); color: var(--accent); }
+	.tlink.as-button {
+		font: inherit;
+		text-align: left;
+		background: transparent;
+		border: 0;
+		cursor: pointer;
 	}
-	.group a.active {
-		background: var(--bg-elev);
-		color: var(--accent);
+
+	.hint {
+		font-size: 0.7rem;
+		color: var(--muted);
+		font-family: var(--font-mono);
+		margin-left: 0.4rem;
 	}
 
 	.content {
