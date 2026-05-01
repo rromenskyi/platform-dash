@@ -3,6 +3,7 @@ import { canRead, canWrite } from '$lib/authz';
 import { defaultCluster } from '$lib/clusters.server';
 import { materialize } from '$lib/resource';
 import { buildAllTrees } from '$lib/resource-tree-k8s.server';
+import { ensureFresh as ensureDbTargetsFresh } from '$lib/db-targets.server';
 
 // Surface the Auth.js session on every page via $page.data.session.
 // Keeping this in a layout (not per-page) means the topbar can show
@@ -16,8 +17,14 @@ export const load: LayoutServerLoad = async (event) => {
 	const reader = canRead(session);
 	// Tree is read-only metadata about what's configured — only build
 	// it when the user actually has access to anything, so unauthorised
-	// pages don't waste cycles.
-	const tree = reader ? await materialize(buildAllTrees()) : [];
+	// pages don't waste cycles. Refresh the DB targets registry first
+	// so the sidebar shows whatever the operator has in the registry
+	// CM on first paint.
+	let tree: Awaited<ReturnType<typeof materialize>> = [];
+	if (reader) {
+		await ensureDbTargetsFresh();
+		tree = await materialize(buildAllTrees());
+	}
 	return {
 		session,
 		canRead: reader,
