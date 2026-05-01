@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
 	import { invalidateAll } from '$app/navigation';
+	import SchemaTree from '$lib/SchemaTree.svelte';
 
 	let { data } = $props();
 
@@ -63,6 +64,15 @@
 		<p class="muted small">Short names: <code>{data.crd.shortNames.join(', ')}</code></p>
 	{/if}
 </section>
+
+{#if data.crd.storageSchema}
+	<section class="card">
+		<h2>Schema <span class="muted small">(storage version)</span></h2>
+		<div class="schema-wrap">
+			<SchemaTree schema={data.crd.storageSchema} />
+		</div>
+	</section>
+{/if}
 
 <section class="card">
 	<h2>
@@ -166,6 +176,15 @@
 	.card h2 .small { font-weight: 400; margin-left: 0.5rem; }
 
 	.small { font-size: 0.85rem; }
+
+	.schema-wrap {
+		max-height: 60vh;
+		overflow: auto;
+		padding: 0.4rem 0.6rem;
+		background: var(--bg);
+		border: 1px solid var(--rule);
+		border-radius: 6px;
+	}
 
 	table {
 		width: 100%;
