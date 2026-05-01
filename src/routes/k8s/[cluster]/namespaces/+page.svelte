@@ -1,27 +1,45 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
 	import { invalidateAll } from '$app/navigation';
+	import { onDestroy } from 'svelte';
+	import { createLiveList } from '$lib/live-list.svelte';
+	import type { NamespaceRow } from './+page.server';
 
 	let { data } = $props();
 	let q = $state('');
 
+	const live = createLiveList<NamespaceRow>({
+		initial: [],
+		// Namespaces are cluster-scoped — ?ns= is irrelevant.
+		url: () => `/k8s/${data.cluster}/api/watch/namespaces`,
+		keyFn: (r) => r.name,
+		sortFn: (a, b) => a.name.localeCompare(b.name)
+	});
+	$effect(() => { live.reseed(data.rows); });
+	$effect(() => { live.sync(); });
+	onDestroy(() => live.destroy());
+
 	const filtered = $derived(
-		data.rows.filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))
+		live.rows.filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))
 	);
 </script>
 
 <div class="header">
 	<h1>Namespaces</h1>
-	<button class="ghost" onclick={() => invalidateAll()}>↻ Refresh</button>
+	<div class="head-actions">
+		<label class="live-toggle"><input type="checkbox" bind:checked={live.live} /><span class="dot {live.live ? 'on' : 'off'}"></span> Live</label>
+		<button class="ghost" onclick={() => invalidateAll()} disabled={live.live}>↻ Refresh</button>
+	</div>
 </div>
 
 {#if data.error}<p class="error">Failed to list namespaces: {data.error}</p>{/if}
+{#if live.error}<p class="error">{live.error}</p>{/if}
 
 <div class="controls">
 	<input class="search" type="search" bind:value={q} placeholder="Filter by name…" />
 </div>
 
-<p class="muted small">{filtered.length} of {data.rows.length} namespaces</p>
+<p class="muted small">{filtered.length} of {live.rows.length} namespaces</p>
 
 <table>
 	<thead>
@@ -57,6 +75,12 @@
 
 <style>
 	.header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+	.head-actions { display: inline-flex; gap: 0.5rem; align-items: center; }
+	.live-toggle { display: inline-flex; gap: 0.4rem; align-items: center; font-size: 0.85rem; color: var(--fg-soft); padding: 0.4rem 0.75rem; border: 1px solid var(--rule); border-radius: 6px; cursor: pointer; }
+	.live-toggle input { accent-color: var(--accent); }
+	.dot { width: 8px; height: 8px; border-radius: 50%; }
+	.dot.on { background: #6ee7b7; box-shadow: 0 0 6px #6ee7b7; }
+	.dot.off { background: var(--muted); }
 	.ghost {
 		font: inherit; font-size: 0.85rem;
 		padding: 0.4rem 0.8rem;
@@ -66,7 +90,8 @@
 		border-radius: 6px;
 		cursor: pointer;
 	}
-	.ghost:hover { color: var(--fg); border-color: var(--muted); }
+	.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--muted); }
+	.ghost:disabled { cursor: not-allowed; opacity: 0.5; }
 
 	.controls { margin: 1rem 0 0.5rem; }
 	.search {

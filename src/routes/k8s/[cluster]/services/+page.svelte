@@ -1,11 +1,34 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
 	import { invalidateAll } from '$app/navigation';
+	import { onDestroy } from 'svelte';
+	import { page } from '$app/state';
+	import { createLiveList } from '$lib/live-list.svelte';
+	import type { SvcRow } from './+page.server';
+
 	let { data } = $props();
 	let q = $state('');
 	let typeFilter = $state<'all' | 'ClusterIP' | 'NodePort' | 'LoadBalancer' | 'ExternalName'>('all');
+
+	const live = createLiveList<SvcRow>({
+		initial: [],
+		url: () => {
+			const ns = page.url.searchParams.get('ns') || '';
+			const u = `/k8s/${data.cluster}/api/watch/services`;
+			return ns ? `${u}?ns=${encodeURIComponent(ns)}` : u;
+		},
+		keyFn: (r) => `${r.namespace}|${r.name}`,
+		sortFn: (a, b) => {
+			if (a.namespace !== b.namespace) return a.namespace.localeCompare(b.namespace);
+			return a.name.localeCompare(b.name);
+		}
+	});
+	$effect(() => { live.reseed(data.rows); });
+	$effect(() => { const _ns = page.url.searchParams.get('ns'); void _ns; live.sync(); });
+	onDestroy(() => live.destroy());
+
 	const filtered = $derived(
-		data.rows.filter((r) => {
+		live.rows.filter((r) => {
 			if (typeFilter !== 'all' && r.type !== typeFilter) return false;
 			if (q && !`${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase())) return false;
 			return true;
@@ -15,10 +38,14 @@
 
 <div class="header">
 	<h1>Services</h1>
-	<button class="ghost" onclick={() => invalidateAll()}>↻ Refresh</button>
+	<div class="head-actions">
+		<label class="live-toggle"><input type="checkbox" bind:checked={live.live} /><span class="dot {live.live ? 'on' : 'off'}"></span> Live</label>
+		<button class="ghost" onclick={() => invalidateAll()} disabled={live.live}>↻ Refresh</button>
+	</div>
 </div>
 
 {#if data.error}<p class="error">Failed to list Services: {data.error}</p>{/if}
+{#if live.error}<p class="error">{live.error}</p>{/if}
 
 <div class="controls">
 	<input class="search" type="search" bind:value={q} placeholder="Filter by name…" />
@@ -29,7 +56,7 @@
 	</div>
 </div>
 
-<p class="muted small">{filtered.length} of {data.rows.length}</p>
+<p class="muted small">{filtered.length} of {live.rows.length}</p>
 
 <table>
 	<thead><tr><th>Namespace</th><th>Name</th><th>Type</th><th>ClusterIP</th><th>External</th><th>Ports</th><th>Age</th></tr></thead>
@@ -50,8 +77,15 @@
 
 <style>
 	.header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+	.head-actions { display: inline-flex; gap: 0.5rem; align-items: center; }
+	.live-toggle { display: inline-flex; gap: 0.4rem; align-items: center; font-size: 0.85rem; color: var(--fg-soft); padding: 0.4rem 0.75rem; border: 1px solid var(--rule); border-radius: 6px; cursor: pointer; }
+	.live-toggle input { accent-color: var(--accent); }
+	.dot { width: 8px; height: 8px; border-radius: 50%; }
+	.dot.on { background: #6ee7b7; box-shadow: 0 0 6px #6ee7b7; }
+	.dot.off { background: var(--muted); }
 	.ghost { font: inherit; font-size: 0.85rem; padding: 0.4rem 0.8rem; border: 1px solid var(--rule); background: transparent; color: var(--fg-soft); border-radius: 6px; cursor: pointer; }
-	.ghost:hover { color: var(--fg); border-color: var(--muted); }
+	.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--muted); }
+	.ghost:disabled { cursor: not-allowed; opacity: 0.5; }
 	.controls { display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0 0.5rem; flex-wrap: wrap; }
 	.search { flex: 1 1 240px; padding: 0.5rem 0.8rem; background: var(--bg-elev); border: 1px solid var(--rule); border-radius: 8px; color: var(--fg); font: inherit; }
 	.search:focus { outline: none; border-color: var(--accent); }
