@@ -3,9 +3,21 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { signIn, signOut } from '@auth/sveltekit/client';
 	import { page } from '$app/state';
+	import { beforeNavigate } from '$app/navigation';
 	import type { SerializableNode } from '$lib/resource';
 	import Toasts from '$lib/Toasts.svelte';
 	import SavedViews from '$lib/SavedViews.svelte';
+	import { closeAll as closeAllLive } from '$lib/live-registry.svelte';
+
+	// Drop every active Live SSE before any client-side navigation.
+	// Browsers cap concurrent HTTP/1.1 connections per origin at 6 and
+	// SSE holds a slot indefinitely; in dev / non-HTTP/2 setups this
+	// would deadlock SvelteKit's load fetch behind the open stream.
+	// Pages that re-mount their stream via $effect re-open it after the
+	// navigation completes.
+	beforeNavigate(() => {
+		closeAllLive();
+	});
 
 	let { children } = $props();
 	let session = $derived(page.data.session);
