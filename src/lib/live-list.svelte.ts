@@ -4,6 +4,11 @@
 // keyed Map so deltas splice in place without re-rendering rows that
 // didn't change.
 //
+// Each LiveList registers with the global live-registry so navigation
+// (ns/cluster selector, saved views, sidebar links) can close all
+// active streams before goto — without that, the SSE holds an
+// HTTP/1.1 slot the load fetch needs.
+//
 // Usage in a Svelte 5 component (.svelte file):
 //   const live = createLiveList<Row>({
 //     initial: data.rows,
@@ -12,6 +17,8 @@
 //     sortFn: byNsName,
 //   });
 //   ... bind:checked={live.live}, use {#each live.rows as r}
+
+import { registerLive, unregisterLive } from './live-registry.svelte';
 
 export type LiveListInit<T> = {
 	initial: T[];
@@ -52,12 +59,26 @@ export class LiveList<T> {
 		this.rows = arr;
 	}
 
+	#regKey(): string {
+		return `live-list:${this.#init.url()}`;
+	}
+
 	#open() {
 		this.#close();
 		this.reseed(this.rows);
 		this.error = null;
-		this.#es = new EventSource(this.#init.url());
-		this.#es.onmessage = (ev) => {
+		const es = new EventSource(this.#init.url());
+		this.#es = es;
+		// Singleton policy via the registry — any other live stream
+		// (other tab on this page, a stray pod-events stream, etc) is
+		// closed first so we don't sit on multiple HTTP slots.
+		registerLive(this.#regKey(), () => {
+			es.close();
+			if (this.#es === es) this.#es = null;
+			// Also flip the bound flag so the UI checkbox reflects reality.
+			this.live = false;
+		});
+		es.onmessage = (ev) => {
 			try {
 				const msg = JSON.parse(ev.data) as Msg<T>;
 				if (msg.type === 'error') {
@@ -75,8 +96,10 @@ export class LiveList<T> {
 	}
 
 	#close() {
-		this.#es?.close();
-		this.#es = null;
+		if (this.#es) {
+			unregisterLive(this.#regKey());
+			this.#es = null;
+		}
 	}
 
 	// Drive open/close from outside. Page wires this into a $effect

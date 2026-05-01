@@ -3,6 +3,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { onDestroy } from 'svelte';
 	import { page } from '$app/state';
+	import { registerLive, unregisterLive } from '$lib/live-registry.svelte';
 
 	let { data } = $props();
 
@@ -39,14 +40,24 @@
 
 	let es: EventSource | null = null;
 
+	function eventsKey(): string {
+		return `pod-events:${data.cluster}/${data.pod.namespace}/${data.pod.name}`;
+	}
+
 	function startEventStream() {
 		if (es) return;
 		const u = new URL(`/k8s/${data.cluster}/api/watch/events`, window.location.origin);
 		u.searchParams.set('ns', data.pod.namespace);
 		u.searchParams.set('name', data.pod.name);
 		u.searchParams.set('kind', 'Pod');
-		es = new EventSource(u.toString());
-		es.onmessage = (ev) => {
+		const src = new EventSource(u.toString());
+		es = src;
+		registerLive(eventsKey(), () => {
+			src.close();
+			if (es === src) es = null;
+			liveEvents = false;
+		});
+		src.onmessage = (ev) => {
 			try {
 				const msg = JSON.parse(ev.data);
 				if (msg.type === 'error') {
@@ -70,8 +81,10 @@
 		};
 	}
 	function stopEventStream() {
-		es?.close();
-		es = null;
+		if (es) {
+			unregisterLive(eventsKey());
+			es = null;
+		}
 	}
 	$effect(() => {
 		if (liveEvents) startEventStream();

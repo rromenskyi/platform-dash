@@ -5,6 +5,7 @@
 	import type { WorkloadRow } from './+page.server';
 	import { page } from '$app/state';
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
+	import { registerLive, unregisterLive } from '$lib/live-registry.svelte';
 
 	let { data } = $props();
 
@@ -57,8 +58,17 @@
 		const u = new URL(`/k8s/${data.cluster}/api/watch/workloads`, window.location.origin);
 		const ns = page.url.searchParams.get('ns') || '';
 		if (ns) u.searchParams.set('ns', ns);
-		es = new EventSource(u.toString());
-		es.onmessage = (ev) => {
+		const src = new EventSource(u.toString());
+		es = src;
+		// Hand the closer to the registry so any external navigation
+		// (ns/cluster selector, saved-views jump) can drop the SSE
+		// before its goto() blocks on an HTTP/1.1 connection slot.
+		registerLive(`workloads:${u.pathname}${u.search}`, () => {
+			src.close();
+			if (es === src) es = null;
+			live = false;
+		});
+		src.onmessage = (ev) => {
 			try {
 				const msg = JSON.parse(ev.data) as
 					| { kind: 'error'; message: string }
@@ -75,15 +85,20 @@
 				/* malformed event, skip */
 			}
 		};
-		es.onerror = () => {
+		src.onerror = () => {
 			// Browser will auto-reconnect; surface a hint if connection
 			// stays down for a while in a follow-up enhancement.
 		};
 	}
 
 	function stopLive() {
-		es?.close();
-		es = null;
+		if (es) {
+			const u = new URL(`/k8s/${data.cluster}/api/watch/workloads`, window.location.origin);
+			const ns = page.url.searchParams.get('ns') || '';
+			if (ns) u.searchParams.set('ns', ns);
+			unregisterLive(`workloads:${u.pathname}${u.search}`);
+			es = null;
+		}
 	}
 
 	$effect(() => {
