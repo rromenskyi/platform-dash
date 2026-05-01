@@ -1,7 +1,12 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { core } from '$lib/k8s.server';
+import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+
+export type ContainerUsage = {
+	cpu?: string;
+	memory?: string;
+};
 
 export type PodEvent = {
 	type: string;
@@ -25,6 +30,7 @@ export type ContainerView = {
 	limits?: Record<string, string>;
 	envCount: number;
 	mounts: Array<{ name: string; path: string; readOnly: boolean }>;
+	usage?: ContainerUsage;
 };
 
 export const load: PageServerLoad = async (event) => {
@@ -53,6 +59,28 @@ export const load: PageServerLoad = async (event) => {
 		(pod.status?.containerStatuses ?? []).map((s) => [s.name, s])
 	);
 
+	// Best-effort metrics-server lookup for actual CPU / memory usage
+	// per container. metrics.k8s.io is optional — clusters without
+	// metrics-server installed return 404; the fallback is just no
+	// usage column on the rows. We only fetch this pod's namespace
+	// (cheap) rather than cluster-wide.
+	const usageByContainer = new Map<string, ContainerUsage>();
+	let metricsAvailable = true;
+	try {
+		const ml = await time(`${cluster}/getPodMetrics`, () =>
+			metrics(cluster).getPodMetrics(ns)
+		);
+		const item = ml.items.find((i) => i.metadata.name === name);
+		if (item) {
+			for (const c of item.containers) {
+				usageByContainer.set(c.name, { cpu: c.usage.cpu, memory: c.usage.memory });
+			}
+		}
+	} catch {
+		// metrics-server not installed or RBAC not granted — silent.
+		metricsAvailable = false;
+	}
+
 	const containers: ContainerView[] = (pod.spec?.containers ?? []).map((c) => {
 		const s = statusByName.get(c.name);
 		const stateKey = s?.state?.running
@@ -78,7 +106,8 @@ export const load: PageServerLoad = async (event) => {
 				name: m.name,
 				path: m.mountPath,
 				readOnly: !!m.readOnly
-			}))
+			})),
+			usage: usageByContainer.get(c.name)
 		};
 	});
 
@@ -162,6 +191,7 @@ export const load: PageServerLoad = async (event) => {
 		volumes,
 		conditions,
 		events,
-		eventsError
+		eventsError,
+		metricsAvailable
 	};
 };

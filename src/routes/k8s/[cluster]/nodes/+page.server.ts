@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { core } from '$lib/k8s.server';
+import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 
 export type NodeRow = {
@@ -22,6 +22,10 @@ export type NodeRow = {
 		cpuRequestsMilli: number;
 		memoryRequestsBytes: number;
 		podsScheduled: number;
+		// Live actual values from metrics-server. Undefined when the
+		// cluster doesn't have metrics-server installed.
+		actualCpuMilli?: number;
+		actualMemoryBytes?: number;
 	};
 	taints: Array<{ key: string; value?: string; effect: string }>;
 	labels: Record<string, string>;
@@ -87,8 +91,9 @@ export const load: PageServerLoad = async (event) => {
 
 	let rows: NodeRow[] = [];
 	let error: string | null = null;
+	let metricsAvailable = false;
 	try {
-		const [nodesRes, podsRes] = await Promise.all([
+		const [nodesRes, podsRes, nodeMetricsRes] = await Promise.all([
 			time(`${cluster}/listNode`, () => core(cluster).listNode()),
 			ns
 				? time(`${cluster}/listNamespacedPod`, () =>
@@ -96,8 +101,23 @@ export const load: PageServerLoad = async (event) => {
 					)
 				: time(`${cluster}/listPodForAllNamespaces`, () =>
 						core(cluster).listPodForAllNamespaces()
-					)
+					),
+			// Optional — metrics-server may not be installed.
+			time(`${cluster}/getNodeMetrics`, () => metrics(cluster).getNodeMetrics()).catch(
+				() => null
+			)
 		]);
+
+		const usageByNode = new Map<string, { cpuMilli: number; memBytes: number }>();
+		if (nodeMetricsRes && nodeMetricsRes.items) {
+			metricsAvailable = true;
+			for (const m of nodeMetricsRes.items) {
+				usageByNode.set(m.metadata.name, {
+					cpuMilli: parseCpu(m.usage.cpu),
+					memBytes: parseMem(m.usage.memory)
+				});
+			}
+		}
 
 		// Index pods by node so each NodeRow can compute its own usage
 		// in a single pass without re-walking the pod list.
@@ -155,7 +175,9 @@ export const load: PageServerLoad = async (event) => {
 				usage: {
 					cpuRequestsMilli: cpuMilli,
 					memoryRequestsBytes: memBytes,
-					podsScheduled: onNode.length
+					podsScheduled: onNode.length,
+					actualCpuMilli: usageByNode.get(n.metadata?.name ?? '')?.cpuMilli,
+					actualMemoryBytes: usageByNode.get(n.metadata?.name ?? '')?.memBytes
 				},
 				taints: (n.spec?.taints ?? []).map((t) => ({
 					key: t.key,
@@ -173,5 +195,5 @@ export const load: PageServerLoad = async (event) => {
 		error = err instanceof Error ? err.message : String(err);
 	}
 
-	return { session, rows, error, scopedNs: ns, cluster };
+	return { session, rows, error, scopedNs: ns, cluster, metricsAvailable };
 };
