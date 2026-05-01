@@ -5,19 +5,10 @@
 	let { data } = $props();
 
 	let refreshing = $state(false);
-	let nsFilter = $state('');
 
-	const distinctNamespaces = $derived(
-		Array.from(new Set(data.instances.map((i) => i.namespace).filter(Boolean) as string[])).sort()
-	);
-
-	const filteredInstances = $derived(
-		data.instances.filter((i) => {
-			if (!nsFilter) return true;
-			const ns = i.namespace ?? '';
-			return ns.toLowerCase().includes(nsFilter.toLowerCase());
-		})
-	);
+	// Namespace filtering moved to /k8s/+layout.svelte (server-side via
+	// URL ?ns=). Instances list here just renders whatever the server
+	// returned for the current namespace selection.
 
 	async function refresh() {
 		if (refreshing) return;
@@ -88,27 +79,8 @@
 	{:else if data.instances.length === 0}
 		<p class="muted small">No instances of this kind in the cluster.</p>
 	{:else}
-		{#if data.crd.scope === 'Namespaced' && distinctNamespaces.length > 1}
-			<div class="ns-controls">
-				<input
-					class="ns-search"
-					type="search"
-					list="ns-options-{data.crd.name}"
-					bind:value={nsFilter}
-					placeholder="Filter by namespace…"
-				/>
-				<datalist id="ns-options-{data.crd.name}">
-					{#each distinctNamespaces as ns}
-						<option value={ns}></option>
-					{/each}
-				</datalist>
-				{#if nsFilter}
-					<button class="clear" onclick={() => (nsFilter = '')} title="Clear">×</button>
-				{/if}
-			</div>
-		{/if}
 		<p class="muted small">
-			{filteredInstances.length} of {data.instances.length} instance{data.instances.length === 1 ? '' : 's'}
+			{data.instances.length} instance{data.instances.length === 1 ? '' : 's'}
 		</p>
 		<table>
 			<thead>
@@ -121,7 +93,7 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each filteredInstances as i}
+				{#each data.instances as i}
 					<tr>
 						<td class="mono">
 							<a

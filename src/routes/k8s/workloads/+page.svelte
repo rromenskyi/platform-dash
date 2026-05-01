@@ -7,22 +7,18 @@
 	let q = $state('');
 	let kindFilter = $state<'all' | 'Pod' | 'Deployment' | 'StatefulSet'>('all');
 	let statusFilter = $state<string>('all');
-	let nsFilter = $state('');
 	let refreshing = $state(false);
 
 	const distinctStatuses = $derived(
 		Array.from(new Set(data.rows.map((r) => r.status))).sort()
 	);
 
-	const distinctNamespaces = $derived(
-		Array.from(new Set(data.rows.map((r) => r.namespace))).sort()
-	);
-
+	// Namespace filtering happens server-side via /k8s/+layout.svelte
+	// (URL ?ns=). Client only handles kind/status/text search now.
 	const filtered = $derived(
 		data.rows.filter((r) => {
 			if (kindFilter !== 'all' && r.kind !== kindFilter) return false;
 			if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-			if (nsFilter && !r.namespace.toLowerCase().includes(nsFilter.toLowerCase())) return false;
 			if (q && !`${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase())) return false;
 			return true;
 		})
@@ -51,24 +47,7 @@
 {/if}
 
 <div class="controls">
-	<input class="search" type="search" bind:value={q} placeholder="Filter by namespace or name…" />
-	<div class="ns-wrap">
-		<input
-			class="ns-search"
-			type="search"
-			list="workloads-ns-options"
-			bind:value={nsFilter}
-			placeholder="Namespace…"
-		/>
-		<datalist id="workloads-ns-options">
-			{#each distinctNamespaces as ns}
-				<option value={ns}></option>
-			{/each}
-		</datalist>
-		{#if nsFilter}
-			<button class="clear" onclick={() => (nsFilter = '')} title="Clear namespace filter">×</button>
-		{/if}
-	</div>
+	<input class="search" type="search" bind:value={q} placeholder="Filter by name…" />
 	<div class="kinds">
 		{#each ['all', 'Pod', 'Deployment', 'StatefulSet'] as k}
 			<button class:active={kindFilter === k} onclick={() => (kindFilter = k as typeof kindFilter)}>
@@ -182,36 +161,6 @@
 		border-color: var(--accent);
 	}
 
-	.ns-wrap {
-		display: inline-flex;
-		gap: 0.4rem;
-		align-items: center;
-	}
-	.ns-search {
-		width: 200px;
-		padding: 0.5rem 0.8rem;
-		background: var(--bg-elev);
-		border: 1px solid var(--rule);
-		border-radius: 8px;
-		color: var(--fg);
-		font: inherit;
-	}
-	.ns-search:focus {
-		outline: none;
-		border-color: var(--accent);
-	}
-	.clear {
-		font: inherit;
-		font-size: 1rem;
-		line-height: 1;
-		padding: 0.3rem 0.6rem;
-		border: 1px solid var(--rule);
-		background: transparent;
-		color: var(--fg-soft);
-		border-radius: 6px;
-		cursor: pointer;
-	}
-	.clear:hover { color: var(--fg); border-color: var(--muted); }
 
 	.kinds {
 		display: flex;
