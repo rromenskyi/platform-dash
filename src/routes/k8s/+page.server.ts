@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core, apps, apiextensions } from '$lib/k8s.server';
+import { time } from '$lib/k8s-metrics.server';
 
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
@@ -20,12 +21,11 @@ export const load: PageServerLoad = async (event) => {
 
 	try {
 		const [nodesRes, nsRes, podsRes, depsRes, crdsRes] = await Promise.all([
-			core().listNode(),
-			core().listNamespace(),
-			core().listPodForAllNamespaces(),
-			apps().listDeploymentForAllNamespaces(),
-			apiextensions()
-				.listCustomResourceDefinition()
+			time('listNode', () => core().listNode()),
+			time('listNamespace', () => core().listNamespace()),
+			time('listPodForAllNamespaces', () => core().listPodForAllNamespaces()),
+			time('listDeploymentForAllNamespaces', () => apps().listDeploymentForAllNamespaces()),
+			time('listCustomResourceDefinition', () => apiextensions().listCustomResourceDefinition())
 				// CRDs are non-critical for the overview — if RBAC is missing
 				// or the apiextensions group is unreachable, fall through to
 				// `crds: 0` instead of blanking the whole page.

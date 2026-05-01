@@ -15,8 +15,13 @@
 
 	// Sidebar nav. K8s explorer is the primary surface; profile +
 	// settings live in the topbar so the sidebar stays focused on
-	// "what's running".
-	const nav: Array<{ section: string; items: Array<{ href: string; label: string }> }> = [
+	// "what's running". Admin section only renders for canWrite users.
+	type NavGroup = {
+		section: string;
+		items: Array<{ href: string; label: string }>;
+		adminOnly?: boolean;
+	};
+	const nav: NavGroup[] = [
 		{
 			section: 'K8s',
 			items: [
@@ -26,10 +31,16 @@
 				{ href: '/k8s/crds', label: 'CRDs' },
 				{ href: '/k8s/monitoring', label: 'Monitoring' }
 			]
+		},
+		{
+			section: 'Admin',
+			adminOnly: true,
+			items: [{ href: '/admin/metrics', label: 'k8s API metrics' }]
 		}
 	];
 
-	const allHrefs = $derived(nav.flatMap((s) => s.items.map((i) => i.href)));
+	const visibleNav = $derived(nav.filter((g) => !g.adminOnly || canWrite));
+	const allHrefs = $derived(visibleNav.flatMap((s) => s.items.map((i) => i.href)));
 
 	function isActive(href: string): boolean {
 		// The most-specific matching href wins. Pure prefix-matching
@@ -72,7 +83,7 @@
 <div class="layout">
 	{#if session?.user && canRead}
 		<aside class="sidebar">
-			{#each nav as group}
+			{#each visibleNav as group}
 				<div class="group">
 					<h3>{group.section}</h3>
 					<ul>

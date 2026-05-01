@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { apiextensions, customObjects } from '$lib/k8s.server';
+import { time } from '$lib/k8s-metrics.server';
 
 export type CrdVersionInfo = {
 	name: string;
@@ -39,7 +40,9 @@ export const load: PageServerLoad = async (event) => {
 	let creationTimestamp: string | undefined;
 
 	try {
-		const crd = await apiextensions().readCustomResourceDefinition({ name });
+		const crd = await time('readCustomResourceDefinition', () =>
+			apiextensions().readCustomResourceDefinition({ name })
+		);
 		group = crd.spec.group;
 		plural = crd.spec.names.plural;
 		scope = crd.spec.scope;
@@ -73,16 +76,20 @@ export const load: PageServerLoad = async (event) => {
 			// We only touch metadata here, which every k8s object guarantees.
 			const res =
 				scope === 'Namespaced'
-					? await customObjects().listCustomObjectForAllNamespaces({
-							group,
-							version: servingVersion,
-							plural
-						})
-					: await customObjects().listClusterCustomObject({
-							group,
-							version: servingVersion,
-							plural
-						});
+					? await time('listCustomObjectForAllNamespaces', () =>
+							customObjects().listCustomObjectForAllNamespaces({
+								group,
+								version: servingVersion,
+								plural
+							})
+						)
+					: await time('listClusterCustomObject', () =>
+							customObjects().listClusterCustomObject({
+								group,
+								version: servingVersion,
+								plural
+							})
+						);
 			const items = (res as { items?: Array<Record<string, unknown>> }).items ?? [];
 			instances = items.map((it) => {
 				const meta = (it.metadata ?? {}) as {
