@@ -34,8 +34,9 @@
 						<span class="kind kind-{c.kind}">{c.kind}</span>
 					</header>
 					<p class="host">{c.host}</p>
+					<p class="src">via {c.source}</p>
 					{#if !c.hasUri}
-						<p class="warn">URI env <code>{c.name}</code> not set</p>
+						<p class="warn">{c.uriHint ?? 'URI not resolved'}</p>
 					{/if}
 				</a>
 			{/each}
@@ -98,6 +99,13 @@
 		margin: 0.3rem 0 0;
 		color: #fcd34d;
 		font-size: 0.78rem;
+	}
+	.src {
+		margin: 0.2rem 0 0;
+		font-size: 0.7rem;
+		color: var(--muted);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
 	}
 	code { font-family: var(--font-mono); font-size: 0.85em; color: var(--fg); }
 </style>
