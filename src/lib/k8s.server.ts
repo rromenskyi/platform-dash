@@ -2,6 +2,7 @@ import {
 	CoreV1Api,
 	AppsV1Api,
 	BatchV1Api,
+	NetworkingV1Api,
 	ApiextensionsV1Api,
 	CustomObjectsApi,
 	Log,
@@ -25,6 +26,8 @@ export const apps = (cluster: string): AppsV1Api =>
 	getKubeConfig(cluster).makeApiClient(AppsV1Api);
 export const batch = (cluster: string): BatchV1Api =>
 	getKubeConfig(cluster).makeApiClient(BatchV1Api);
+export const networking = (cluster: string): NetworkingV1Api =>
+	getKubeConfig(cluster).makeApiClient(NetworkingV1Api);
 export const apiextensions = (cluster: string): ApiextensionsV1Api =>
 	getKubeConfig(cluster).makeApiClient(ApiextensionsV1Api);
 export const customObjects = (cluster: string): CustomObjectsApi =>

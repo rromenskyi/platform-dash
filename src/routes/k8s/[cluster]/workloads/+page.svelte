@@ -86,8 +86,13 @@
 	}
 
 	$effect(() => {
+		// Re-runs when `live` flips OR when the URL ?ns= changes —
+		// reading page.url here makes Svelte track it. We close any
+		// existing stream first so the new one binds to the current ns.
+		const _ns = page.url.searchParams.get('ns'); // tracked dependency
+		void _ns;
+		stopLive();
 		if (live) startLive();
-		else stopLive();
 	});
 
 	onDestroy(stopLive);

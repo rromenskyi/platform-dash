@@ -1,12 +1,16 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { stringify as toYaml } from 'yaml';
 
 	let { data } = $props();
 
 	let refreshing = $state(false);
 	let copied = $state(false);
+	let format = $state<'yaml' | 'json'>('yaml');
 
+	const yaml = $derived(data.object ? toYaml(data.object, { sortMapEntries: false }) : '');
 	const json = $derived(data.object ? JSON.stringify(data.object, null, 2) : '');
+	const body = $derived(format === 'yaml' ? yaml : json);
 
 	async function refresh() {
 		if (refreshing) return;
@@ -19,9 +23,9 @@
 	}
 
 	async function copy() {
-		if (!json) return;
+		if (!body) return;
 		try {
-			await navigator.clipboard.writeText(json);
+			await navigator.clipboard.writeText(body);
 			copied = true;
 			setTimeout(() => (copied = false), 1500);
 		} catch (err) {
@@ -46,7 +50,11 @@
 		</p>
 	</div>
 	<div class="actions">
-		<button class="ghost" onclick={copy} disabled={!json} title="Copy JSON">
+		<div class="fmt">
+			<button class:active={format === 'yaml'} onclick={() => (format = 'yaml')}>YAML</button>
+			<button class:active={format === 'json'} onclick={() => (format = 'json')}>JSON</button>
+		</div>
+		<button class="ghost" onclick={copy} disabled={!body} title="Copy {format.toUpperCase()}">
 			{copied ? '✓ copied' : 'Copy'}
 		</button>
 		<button class="ghost" onclick={refresh} disabled={refreshing} title="Refresh">
@@ -57,8 +65,8 @@
 
 {#if data.fetchError}
 	<p class="error">Failed to fetch object: {data.fetchError}</p>
-{:else if json}
-	<pre class="yaml">{json}</pre>
+{:else if body}
+	<pre class="yaml">{body}</pre>
 {:else}
 	<p class="muted small">No object data.</p>
 {/if}
@@ -81,7 +89,24 @@
 	.header h1 { margin: 0; }
 	.header .small { margin-top: 0.25rem; }
 
-	.actions { display: flex; gap: 0.5rem; }
+	.actions { display: flex; gap: 0.5rem; align-items: center; }
+	.fmt {
+		display: inline-flex;
+		border: 1px solid var(--rule);
+		border-radius: 6px;
+		overflow: hidden;
+	}
+	.fmt button {
+		font: inherit;
+		font-size: 0.78rem;
+		padding: 0.35rem 0.7rem;
+		background: transparent;
+		border: 0;
+		color: var(--fg-soft);
+		cursor: pointer;
+	}
+	.fmt button:hover { color: var(--fg); background: var(--bg); }
+	.fmt button.active { background: var(--bg-elev); color: var(--accent); }
 
 	.ghost {
 		font: inherit;

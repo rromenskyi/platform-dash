@@ -4,12 +4,16 @@
 
 	let { data, children } = $props();
 
-	// Local input state — kept in sync with data.ns whenever the URL
-	// changes externally (back/forward nav, explicit goto), but free
-	// to drift while the user is mid-type before commit.
+	// Local input state — kept in sync with data.{ns,cluster} whenever
+	// the URL changes externally (back/forward nav, explicit goto),
+	// but free to drift while the user is mid-type before commit.
 	let nsInput = $state('');
+	let clusterSelect = $state('');
 	$effect(() => {
 		nsInput = data.ns;
+	});
+	$effect(() => {
+		clusterSelect = data.cluster;
 	});
 
 	// Push the selected namespace into the URL so every nav link, page
@@ -30,15 +34,24 @@
 		nsInput = '';
 		applyNs('');
 	}
+	function onNsKey(e: KeyboardEvent) {
+		// Native datalist commits on blur; explicit Enter so users
+		// don't have to tab away for the filter to apply.
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			(e.currentTarget as HTMLInputElement).blur();
+			onCommit();
+		}
+	}
 
 	// Cluster switch — preserves the current sub-path so jumping to a
 	// different cluster lands on the same kind of view (Workloads stays
 	// Workloads, etc.). Drops the per-resource [name] segments because
 	// they're cluster-specific (a pod name on cluster A almost never
 	// exists on cluster B).
-	function onClusterChange(e: Event) {
-		const next = (e.currentTarget as HTMLSelectElement).value;
-		if (next === data.cluster) return;
+	function onClusterChange() {
+		const next = clusterSelect;
+		if (!next || next === data.cluster) return;
 		const segs = page.url.pathname.split('/').filter(Boolean); // ['k8s', cluster, ...]
 		// Keep top-level section under [cluster] only — strip deeper segments
 		// so we don't dead-end on /k8s/B/pod/foo/bar that doesn't exist on B.
@@ -52,7 +65,7 @@
 <div class="ctx-bar">
 	<div class="field">
 		<label for="cluster-select">cluster</label>
-		<select id="cluster-select" class="cluster-select" value={data.cluster} onchange={onClusterChange}>
+		<select id="cluster-select" class="cluster-select" bind:value={clusterSelect} onchange={onClusterChange}>
 			{#each data.clusters as c}
 				<option value={c}>{c}</option>
 			{/each}
@@ -69,6 +82,7 @@
 			bind:value={nsInput}
 			onchange={onCommit}
 			onblur={onCommit}
+			onkeydown={onNsKey}
 			placeholder="all namespaces"
 		/>
 		<datalist id="global-ns-options">
