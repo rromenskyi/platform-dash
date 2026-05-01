@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { createLiveList } from '$lib/live-list.svelte';
 	import type { CmRow } from './+page.server';
+	import KubectlMenu from '$lib/KubectlMenu.svelte';
 
 	let { data } = $props();
 	let q = $state('');
@@ -59,7 +60,7 @@
 
 <table>
 	<thead>
-		<tr><th>Namespace</th><th>Name</th><th>Keys</th><th>Age</th></tr>
+		<tr><th>Namespace</th><th>Name</th><th>Keys</th><th>Age</th><th>Actions</th></tr>
 	</thead>
 	<tbody>
 		{#each filtered as r}
@@ -72,6 +73,7 @@
 					{#if r.keys.length === 0}<span class="muted">—</span>{/if}
 				</td>
 				<td>{age(r.creationTimestamp)}</td>
+				<td><KubectlMenu target={{ cluster: data.cluster, kind: 'ConfigMap', namespace: r.namespace, name: r.name }} /></td>
 			</tr>
 		{/each}
 	</tbody>

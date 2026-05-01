@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { createLiveList } from '$lib/live-list.svelte';
 	import type { SecretRow } from './+page.server';
+	import KubectlMenu from '$lib/KubectlMenu.svelte';
 
 	let { data } = $props();
 	let q = $state('');
@@ -49,7 +50,7 @@
 <p class="muted small">{filtered.length} of {live.rows.length} · values masked until reveal</p>
 
 <table>
-	<thead><tr><th>Namespace</th><th>Name</th><th>Type</th><th>Keys</th><th>Age</th></tr></thead>
+	<thead><tr><th>Namespace</th><th>Name</th><th>Type</th><th>Keys</th><th>Age</th><th>Actions</th></tr></thead>
 	<tbody>
 		{#each filtered as r}
 			<tr>
@@ -62,6 +63,7 @@
 					{#if r.keys.length === 0}<span class="muted">—</span>{/if}
 				</td>
 				<td>{age(r.creationTimestamp)}</td>
+				<td><KubectlMenu target={{ cluster: data.cluster, kind: 'Secret', namespace: r.namespace, name: r.name }} /></td>
 			</tr>
 		{/each}
 	</tbody>

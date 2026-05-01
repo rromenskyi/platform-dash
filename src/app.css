@@ -101,3 +101,17 @@ button.ghost:hover {
 }
 
 .muted { color: var(--muted); }
+
+/* Sticky table headers — applied globally so every list page pins
+   its <thead> on scroll. The header bg matches the page bg so it
+   doesn't bleed through the rows underneath, and a small box-shadow
+   draws a divider once the body scrolls past. Per-page styles can
+   still override (e.g. the per-card tables inside .card containers
+   which have their own scrollable wrappers). */
+table thead th {
+	position: sticky;
+	top: 0;
+	background: var(--bg);
+	z-index: 1;
+	box-shadow: 0 1px 0 var(--rule);
+}
