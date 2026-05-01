@@ -19,8 +19,9 @@ export const load: PageServerLoad = async (event) => {
 		throw redirect(303, '/');
 	}
 
-	// Global namespace filter from /k8s/+layout.server.ts via the URL.
-	// Empty string means "all namespaces".
+	const cluster = event.params.cluster;
+	// Global namespace filter from /k8s/[cluster]/+layout.server.ts via
+	// the URL. Empty string means "all namespaces".
 	const ns = event.url.searchParams.get('ns') || '';
 
 	const rows: WorkloadRow[] = [];
@@ -33,8 +34,12 @@ export const load: PageServerLoad = async (event) => {
 		(async () => {
 			try {
 				const res = ns
-					? await time('listNamespacedPod', () => core().listNamespacedPod({ namespace: ns }))
-					: await time('listPodForAllNamespaces', () => core().listPodForAllNamespaces());
+					? await time(`${cluster}/listNamespacedPod`, () =>
+							core(cluster).listNamespacedPod({ namespace: ns })
+						)
+					: await time(`${cluster}/listPodForAllNamespaces`, () =>
+							core(cluster).listPodForAllNamespaces()
+						);
 				for (const p of res.items) {
 					const containers = p.status?.containerStatuses ?? [];
 					const ready = containers.filter((c) => c.ready).length;
@@ -60,11 +65,11 @@ export const load: PageServerLoad = async (event) => {
 		(async () => {
 			try {
 				const res = ns
-					? await time('listNamespacedDeployment', () =>
-							apps().listNamespacedDeployment({ namespace: ns })
+					? await time(`${cluster}/listNamespacedDeployment`, () =>
+							apps(cluster).listNamespacedDeployment({ namespace: ns })
 						)
-					: await time('listDeploymentForAllNamespaces', () =>
-							apps().listDeploymentForAllNamespaces()
+					: await time(`${cluster}/listDeploymentForAllNamespaces`, () =>
+							apps(cluster).listDeploymentForAllNamespaces()
 						);
 				for (const d of res.items) {
 					const total = d.spec?.replicas ?? 0;
@@ -89,11 +94,11 @@ export const load: PageServerLoad = async (event) => {
 		(async () => {
 			try {
 				const res = ns
-					? await time('listNamespacedStatefulSet', () =>
-							apps().listNamespacedStatefulSet({ namespace: ns })
+					? await time(`${cluster}/listNamespacedStatefulSet`, () =>
+							apps(cluster).listNamespacedStatefulSet({ namespace: ns })
 						)
-					: await time('listStatefulSetForAllNamespaces', () =>
-							apps().listStatefulSetForAllNamespaces()
+					: await time(`${cluster}/listStatefulSetForAllNamespaces`, () =>
+							apps(cluster).listStatefulSetForAllNamespaces()
 						);
 				for (const s of res.items) {
 					const total = s.spec?.replicas ?? 0;
@@ -123,5 +128,5 @@ export const load: PageServerLoad = async (event) => {
 		return a.name.localeCompare(b.name);
 	});
 
-	return { session, rows, error: errors.length ? errors.join('; ') : null };
+	return { session, rows, cluster, error: errors.length ? errors.join('; ') : null };
 };

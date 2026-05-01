@@ -29,7 +29,7 @@ export const load: PageServerLoad = async (event) => {
 		throw redirect(303, '/');
 	}
 
-	const { name } = event.params;
+	const { name, cluster } = event.params;
 
 	let group = '';
 	let plural = '';
@@ -40,8 +40,8 @@ export const load: PageServerLoad = async (event) => {
 	let creationTimestamp: string | undefined;
 
 	try {
-		const crd = await time('readCustomResourceDefinition', () =>
-			apiextensions().readCustomResourceDefinition({ name })
+		const crd = await time(`${cluster}/readCustomResourceDefinition`, () =>
+			apiextensions(cluster).readCustomResourceDefinition({ name })
 		);
 		group = crd.spec.group;
 		plural = crd.spec.names.plural;
@@ -69,8 +69,9 @@ export const load: PageServerLoad = async (event) => {
 	let instances: CrdInstance[] = [];
 	let instancesError: string | null = null;
 
-	// Global ns filter from /k8s/+layout.server.ts via the URL — only
-	// meaningful for Namespaced CRDs; cluster-scoped objects ignore it.
+	// Global ns filter from /k8s/[cluster]/+layout.server.ts via the URL
+	// — only meaningful for Namespaced CRDs; cluster-scoped objects
+	// ignore it.
 	const nsFilter = event.url.searchParams.get('ns') || '';
 
 	const servingVersion = pickServingVersion(versions);
@@ -81,23 +82,23 @@ export const load: PageServerLoad = async (event) => {
 			const res =
 				scope === 'Namespaced'
 					? nsFilter
-						? await time('listNamespacedCustomObject', () =>
-								customObjects().listNamespacedCustomObject({
+						? await time(`${cluster}/listNamespacedCustomObject`, () =>
+								customObjects(cluster).listNamespacedCustomObject({
 									group,
 									version: servingVersion,
 									namespace: nsFilter,
 									plural
 								})
 							)
-						: await time('listCustomObjectForAllNamespaces', () =>
-								customObjects().listCustomObjectForAllNamespaces({
+						: await time(`${cluster}/listCustomObjectForAllNamespaces`, () =>
+								customObjects(cluster).listCustomObjectForAllNamespaces({
 									group,
 									version: servingVersion,
 									plural
 								})
 							)
-					: await time('listClusterCustomObject', () =>
-							customObjects().listClusterCustomObject({
+					: await time(`${cluster}/listClusterCustomObject`, () =>
+							customObjects(cluster).listClusterCustomObject({
 								group,
 								version: servingVersion,
 								plural
@@ -132,6 +133,7 @@ export const load: PageServerLoad = async (event) => {
 
 	return {
 		session,
+		cluster,
 		crd: {
 			name,
 			group,

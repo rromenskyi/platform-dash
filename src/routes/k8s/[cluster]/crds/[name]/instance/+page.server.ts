@@ -38,7 +38,7 @@ export const load: PageServerLoad = async (event) => {
 		throw redirect(303, '/');
 	}
 
-	const { name } = event.params;
+	const { name, cluster } = event.params;
 	const ns = event.url.searchParams.get('ns') ?? '';
 	const n = event.url.searchParams.get('n');
 
@@ -51,8 +51,8 @@ export const load: PageServerLoad = async (event) => {
 	let servingVersion: string | null = null;
 
 	try {
-		const crd = await time('readCustomResourceDefinition', () =>
-			apiextensions().readCustomResourceDefinition({ name })
+		const crd = await time(`${cluster}/readCustomResourceDefinition`, () =>
+			apiextensions(cluster).readCustomResourceDefinition({ name })
 		);
 		group = crd.spec.group;
 		plural = crd.spec.names.plural;
@@ -73,8 +73,8 @@ export const load: PageServerLoad = async (event) => {
 	try {
 		const res =
 			scope === 'Namespaced'
-				? await time('getNamespacedCustomObject', () =>
-						customObjects().getNamespacedCustomObject({
+				? await time(`${cluster}/getNamespacedCustomObject`, () =>
+						customObjects(cluster).getNamespacedCustomObject({
 							group,
 							version: servingVersion,
 							namespace: ns,
@@ -82,8 +82,8 @@ export const load: PageServerLoad = async (event) => {
 							name: n
 						})
 					)
-				: await time('getClusterCustomObject', () =>
-						customObjects().getClusterCustomObject({
+				: await time(`${cluster}/getClusterCustomObject`, () =>
+						customObjects(cluster).getClusterCustomObject({
 							group,
 							version: servingVersion,
 							plural,
@@ -98,6 +98,7 @@ export const load: PageServerLoad = async (event) => {
 
 	return {
 		session,
+		cluster,
 		crd: { name, group, plural, scope, kind, servingVersion },
 		instance: { namespace: ns || null, name: n },
 		object,

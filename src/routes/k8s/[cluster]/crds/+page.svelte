@@ -5,21 +5,22 @@
 	let { data } = $props();
 
 	let q = $state('');
-	let kindFilter = $state<'all' | 'Pod' | 'Deployment' | 'StatefulSet'>('all');
-	let statusFilter = $state<string>('all');
+	let scopeFilter = $state<'all' | 'Namespaced' | 'Cluster'>('all');
 	let refreshing = $state(false);
 
-	const distinctStatuses = $derived(
-		Array.from(new Set(data.rows.map((r) => r.status))).sort()
+	const distinctGroups = $derived(
+		Array.from(new Set(data.rows.map((r) => r.group))).sort()
 	);
+	let groupFilter = $state<string>('all');
 
-	// Namespace filtering happens server-side via /k8s/+layout.svelte
-	// (URL ?ns=). Client only handles kind/status/text search now.
 	const filtered = $derived(
 		data.rows.filter((r) => {
-			if (kindFilter !== 'all' && r.kind !== kindFilter) return false;
-			if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-			if (q && !`${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase())) return false;
+			if (scopeFilter !== 'all' && r.scope !== scopeFilter) return false;
+			if (groupFilter !== 'all' && r.group !== groupFilter) return false;
+			if (q) {
+				const hay = `${r.group}/${r.kind}/${r.name}/${r.shortNames.join(',')}`.toLowerCase();
+				if (!hay.includes(q.toLowerCase())) return false;
+			}
 			return true;
 		})
 	);
@@ -36,63 +37,63 @@
 </script>
 
 <div class="header">
-	<h1>Workloads</h1>
+	<h1>CustomResourceDefinitions</h1>
 	<button class="refresh" onclick={refresh} disabled={refreshing} title="Refresh">
 		<span class:spin={refreshing}>↻</span> Refresh
 	</button>
 </div>
 
 {#if data.error}
-	<p class="error">Failed to list workloads: {data.error}</p>
+	<p class="error">Failed to list CRDs: {data.error}</p>
 {/if}
 
 <div class="controls">
-	<input class="search" type="search" bind:value={q} placeholder="Filter by name…" />
+	<input class="search" type="search" bind:value={q} placeholder="Filter by group, kind, name, shortName…" />
 	<div class="kinds">
-		{#each ['all', 'Pod', 'Deployment', 'StatefulSet'] as k}
-			<button class:active={kindFilter === k} onclick={() => (kindFilter = k as typeof kindFilter)}>
-				{k}
+		{#each ['all', 'Namespaced', 'Cluster'] as s}
+			<button class:active={scopeFilter === s} onclick={() => (scopeFilter = s as typeof scopeFilter)}>
+				{s}
 			</button>
 		{/each}
 	</div>
 </div>
 
-<div class="controls">
-	<div class="kinds statuses">
-		<button class:active={statusFilter === 'all'} onclick={() => (statusFilter = 'all')}>
-			all
-		</button>
-		{#each distinctStatuses as s}
-			<button class:active={statusFilter === s} onclick={() => (statusFilter = s)}>
-				<span class="status status-{s.toLowerCase()}">{s}</span>
+{#if distinctGroups.length > 1}
+	<div class="controls">
+		<div class="kinds groups">
+			<button class:active={groupFilter === 'all'} onclick={() => (groupFilter = 'all')}>
+				all groups
 			</button>
-		{/each}
+			{#each distinctGroups as g}
+				<button class:active={groupFilter === g} onclick={() => (groupFilter = g)} title={g}>
+					{g}
+				</button>
+			{/each}
+		</div>
 	</div>
-</div>
+{/if}
 
-<p class="muted small">{filtered.length} of {data.rows.length} resources</p>
+<p class="muted small">{filtered.length} of {data.rows.length} CRDs</p>
 
 <table>
 	<thead>
 		<tr>
-			<th>Namespace</th>
+			<th>Group</th>
 			<th>Kind</th>
-			<th>Name</th>
-			<th>Ready</th>
-			<th>Status</th>
-			<th>Restarts</th>
+			<th>Version</th>
+			<th>Scope</th>
+			<th>Short names</th>
 			<th>Age</th>
 		</tr>
 	</thead>
 	<tbody>
 		{#each filtered as r}
 			<tr>
-				<td>{r.namespace}</td>
-				<td><span class="kind kind-{r.kind.toLowerCase()}">{r.kind}</span></td>
-				<td class="name">{r.name}</td>
-				<td>{r.ready}</td>
-				<td><span class="status status-{r.status.toLowerCase()}">{r.status}</span></td>
-				<td>{r.restarts || ''}</td>
+				<td class="group">{r.group}</td>
+				<td class="kind"><a href="/k8s/{data.cluster}/crds/{r.name}">{r.kind}</a></td>
+				<td>{r.version}</td>
+				<td><span class="scope scope-{r.scope.toLowerCase()}">{r.scope}</span></td>
+				<td class="short">{r.shortNames.join(', ') || '—'}</td>
 				<td>{age(r.creationTimestamp)}</td>
 			</tr>
 		{/each}
@@ -133,9 +134,7 @@
 		animation: spin 0.7s linear infinite;
 	}
 	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
+		to { transform: rotate(360deg); }
 	}
 
 	.controls {
@@ -161,7 +160,6 @@
 		border-color: var(--accent);
 	}
 
-
 	.kinds {
 		display: flex;
 		gap: 0.25rem;
@@ -180,7 +178,6 @@
 	.kinds button:hover {
 		color: var(--fg);
 		border-color: var(--muted);
-		opacity: 1;
 	}
 	.kinds button.active {
 		background: var(--bg-elev);
@@ -218,50 +215,33 @@
 	tr:hover td {
 		background: var(--bg-elev);
 	}
-	td.name {
-		color: var(--fg);
+
+	td.group {
 		font-family: var(--font-mono);
-		font-size: 0.85em;
+		font-size: 0.82em;
+		color: var(--muted);
+	}
+	td.kind a {
+		color: var(--fg);
+		font-weight: 500;
+	}
+	td.kind a:hover { color: var(--accent); }
+
+	td.short {
+		font-family: var(--font-mono);
+		font-size: 0.82em;
 	}
 
-	.kind {
+	.scope {
 		display: inline-block;
 		padding: 0.05rem 0.5rem;
 		border-radius: 4px;
 		font-size: 0.7rem;
 		font-weight: 500;
 		background: var(--bg-elev);
-		color: var(--fg-soft);
 	}
-	.kind-deployment {
-		color: #a5b4fc;
-	}
-	.kind-statefulset {
-		color: #c4b5fd;
-	}
-	.kind-pod {
-		color: var(--muted);
-	}
-
-	.status {
-		font-size: 0.8rem;
-	}
-	.status-running,
-	.status-ready {
-		color: #6ee7b7;
-	}
-	.status-pending {
-		color: #fcd34d;
-	}
-	.status-succeeded {
-		color: #93c5fd;
-	}
-	.status-failed,
-	.status-error,
-	.status-crashloopbackoff,
-	.status-unknown {
-		color: #fb7185;
-	}
+	.scope-namespaced { color: #a5b4fc; }
+	.scope-cluster { color: #c4b5fd; }
 
 	.error {
 		padding: 0.75rem 1rem;

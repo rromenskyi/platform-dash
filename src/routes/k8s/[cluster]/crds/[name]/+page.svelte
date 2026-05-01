@@ -21,7 +21,7 @@
 	}
 </script>
 
-<p class="crumb"><a href="/k8s/crds">← CustomResourceDefinitions</a></p>
+<p class="crumb"><a href="/k8s/{data.cluster}/crds">← CustomResourceDefinitions</a></p>
 
 <div class="header">
 	<div>
@@ -97,7 +97,7 @@
 					<tr>
 						<td class="mono">
 							<a
-								href="/k8s/crds/{data.crd.name}/instance?ns={encodeURIComponent(i.namespace ?? '')}&n={encodeURIComponent(i.name)}"
+								href="/k8s/{data.cluster}/crds/{data.crd.name}/instance?ns={encodeURIComponent(i.namespace ?? '')}&n={encodeURIComponent(i.name)}"
 							>{i.name}</a>
 						</td>
 						{#if data.crd.scope === 'Namespaced'}

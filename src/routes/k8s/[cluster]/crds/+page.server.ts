@@ -31,12 +31,13 @@ export const load: PageServerLoad = async (event) => {
 		throw redirect(303, '/');
 	}
 
+	const cluster = event.params.cluster;
 	let rows: CrdRow[] = [];
 	let error: string | null = null;
 
 	try {
-		const res = await time('listCustomResourceDefinition', () =>
-			apiextensions().listCustomResourceDefinition()
+		const res = await time(`${cluster}/listCustomResourceDefinition`, () =>
+			apiextensions(cluster).listCustomResourceDefinition()
 		);
 		rows = res.items.map((c) => ({
 			name: c.metadata?.name ?? '?',
@@ -59,5 +60,5 @@ export const load: PageServerLoad = async (event) => {
 		error = err instanceof Error ? err.message : String(err);
 	}
 
-	return { session, rows, error };
+	return { session, rows, error, cluster };
 };

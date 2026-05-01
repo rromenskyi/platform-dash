@@ -9,60 +9,82 @@
 	let pathname = $derived(page.url.pathname);
 	let canRead = $derived(!!page.data.canRead);
 	let canWrite = $derived(!!page.data.canWrite);
+	let defaultCluster = $derived((page.data.defaultCluster as string | undefined) ?? 'local');
 	// Single primary role label for the topbar — admin trumps sre when
 	// a user holds both. Hidden if neither.
 	let roleLabel = $derived(canWrite ? 'admin' : canRead ? 'sre' : '');
 
+	// Detect the cluster the user is currently looking at by reading
+	// the second path segment under /k8s/. When they're outside /k8s
+	// (Profile/Settings), fall back to the configured default — that
+	// way clicking "Workloads" from anywhere lands on a real page.
+	let currentCluster = $derived.by(() => {
+		const segs = pathname.split('/').filter(Boolean);
+		if (segs[0] === 'k8s' && segs[1]) return segs[1];
+		return defaultCluster;
+	});
+
 	// Sidebar nav. K8s explorer is the primary surface; profile +
 	// settings live in the topbar so the sidebar stays focused on
 	// "what's running". Admin section only renders for canWrite users.
+	// `kind: 'k8s'` items are templated with the active cluster at
+	// render time; admin items are absolute paths.
+	type NavItem = { kind: 'k8s' | 'fixed'; href: string; label: string };
 	type NavGroup = {
 		section: string;
-		items: Array<{ href: string; label: string }>;
+		items: NavItem[];
 		adminOnly?: boolean;
 	};
 	const nav: NavGroup[] = [
 		{
 			section: 'K8s',
 			items: [
-				{ href: '/k8s', label: 'Overview' },
-				{ href: '/k8s/workloads', label: 'Workloads' },
-				{ href: '/k8s/nodes', label: 'Nodes' },
-				{ href: '/k8s/crds', label: 'CRDs' },
-				{ href: '/k8s/monitoring', label: 'Monitoring' }
+				{ kind: 'k8s', href: '', label: 'Overview' },
+				{ kind: 'k8s', href: '/workloads', label: 'Workloads' },
+				{ kind: 'k8s', href: '/nodes', label: 'Nodes' },
+				{ kind: 'k8s', href: '/crds', label: 'CRDs' },
+				{ kind: 'k8s', href: '/monitoring', label: 'Monitoring' }
 			]
 		},
 		{
 			section: 'Admin',
 			adminOnly: true,
-			items: [{ href: '/admin/metrics', label: 'k8s API metrics' }]
+			items: [{ kind: 'fixed', href: '/admin/metrics', label: 'k8s API metrics' }]
 		}
 	];
 
 	const visibleNav = $derived(nav.filter((g) => !g.adminOnly || canWrite));
-	const allHrefs = $derived(visibleNav.flatMap((s) => s.items.map((i) => i.href)));
 
 	// Carry the global namespace selection across /k8s/* nav clicks.
 	// Without this, clicking "Workloads" while filtered to ns=foo would
 	// drop the filter. Non-/k8s links (Profile/Settings/Admin) ignore it
 	// because the selector lives only inside the /k8s layout.
 	let currentNs = $derived(page.url.searchParams.get('ns') || '');
-	function navHref(href: string): string {
-		if (!currentNs || !href.startsWith('/k8s')) return href;
-		return `${href}?ns=${encodeURIComponent(currentNs)}`;
+
+	function resolveHref(item: NavItem): string {
+		if (item.kind === 'fixed') return item.href;
+		const base = `/k8s/${currentCluster}${item.href}`;
+		return currentNs ? `${base}?ns=${encodeURIComponent(currentNs)}` : base;
 	}
 
-	function isActive(href: string): boolean {
-		// The most-specific matching href wins. Pure prefix-matching
-		// would light up `/k8s` (Overview) alongside `/k8s/workloads`
-		// because the latter starts with the former; this keeps only
-		// the longest match active.
-		const matches = allHrefs.filter(
+	function isActive(item: NavItem): boolean {
+		if (item.kind === 'fixed') {
+			return pathname === item.href || pathname.startsWith(item.href + '/');
+		}
+		// k8s items: match by sub-path under /k8s/[cluster]/
+		const expected = `/k8s/${currentCluster}${item.href}`;
+		// Most-specific match wins so "Overview" doesn't light up alongside
+		// "Workloads" when at /k8s/foo/workloads.
+		const candidates = nav
+			.flatMap((g) => g.items)
+			.filter((i) => i.kind === 'k8s')
+			.map((i) => `/k8s/${currentCluster}${i.href}`);
+		const matches = candidates.filter(
 			(h) => pathname === h || (h !== '/' && pathname.startsWith(h + '/'))
 		);
 		if (matches.length === 0) return false;
 		const longest = matches.reduce((a, b) => (b.length > a.length ? b : a));
-		return href === longest;
+		return expected === longest;
 	}
 </script>
 
@@ -74,8 +96,8 @@
 <header class="topbar">
 	<a class="brand" href="/">platform</a>
 	<nav class="topnav">
-		<a href="/profile" class:active={isActive('/profile')}>Profile</a>
-		<a href="/settings" class:active={isActive('/settings')}>Settings</a>
+		<a href="/profile" class:active={pathname === '/profile' || pathname.startsWith('/profile/')}>Profile</a>
+		<a href="/settings" class:active={pathname === '/settings' || pathname.startsWith('/settings/')}>Settings</a>
 		{#if session?.user}
 			{#if roleLabel}
 				<span class="role role-{roleLabel}">{roleLabel}</span>
@@ -99,7 +121,7 @@
 					<ul>
 						{#each group.items as item}
 							<li>
-								<a href={navHref(item.href)} class:active={isActive(item.href)}>{item.label}</a>
+								<a href={resolveHref(item)} class:active={isActive(item)}>{item.label}</a>
 							</li>
 						{/each}
 					</ul>
