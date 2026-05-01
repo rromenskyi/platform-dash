@@ -142,3 +142,83 @@ export async function fetchMysqlStats(
 		};
 	}
 }
+
+// ── Per-db drill-in ──────────────────────────────────────────────────────────
+
+export type MysqlTable = {
+	name: string;
+	engine: string | null;
+	bytes: number;
+	rowCount: number;
+};
+
+export type MysqlDbDetail = {
+	ok: boolean;
+	error?: string;
+	dbName: string;
+	totalBytes: number;
+	tables: MysqlTable[];
+};
+
+export async function fetchMysqlDbDetail(
+	targetName: string,
+	uri: string,
+	dbName: string,
+	session: Session | null,
+	cluster?: string
+): Promise<MysqlDbDetail> {
+	const pool = getPool(targetName, uri);
+	const baseAudit = {
+		user: session?.user?.email ?? session?.user?.name ?? 'unknown',
+		roles: session?.roles ?? [],
+		cluster: cluster ?? 'external',
+		action: 'db-stats-mysql-drill',
+		target: { kind: 'Database', name: targetName, db: dbName }
+	};
+	const start = performance.now();
+	try {
+		const conn = await pool.getConnection();
+		try {
+			const [rows] = await conn.query<mysql.RowDataPacket[]>(
+				`SELECT table_name AS tname, engine,
+					COALESCE(data_length + index_length, 0) AS bytes,
+					COALESCE(table_rows, 0) AS rcount
+				FROM information_schema.tables
+				WHERE table_schema = ?
+				ORDER BY bytes DESC
+				LIMIT 100`,
+				[dbName]
+			);
+			const tables: MysqlTable[] = rows.map((r) => ({
+				name: String(r.tname),
+				engine: r.engine == null ? null : String(r.engine),
+				bytes: Number(r.bytes),
+				rowCount: Number(r.rcount)
+			}));
+			const totalBytes = tables.reduce((a, b) => a + b.bytes, 0);
+			record({
+				...baseAudit,
+				outcome: 'ok',
+				durationMs: Math.round(performance.now() - start)
+			});
+			return { ok: true, dbName, totalBytes, tables };
+		} finally {
+			conn.release();
+		}
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		record({
+			...baseAudit,
+			outcome: 'error',
+			message: msg,
+			durationMs: Math.round(performance.now() - start)
+		});
+		return {
+			ok: false,
+			error: msg,
+			dbName,
+			totalBytes: 0,
+			tables: []
+		};
+	}
+}
