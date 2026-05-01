@@ -103,19 +103,49 @@
 		</section>
 
 		<section class="card">
-			<h2>Databases</h2>
+			<h2>Databases <span class="muted small">(click to drill in)</span></h2>
 			<table>
 				<thead><tr><th>Name</th><th class="num">Size</th></tr></thead>
 				<tbody>
 					{#each s.dbs as d}
 						<tr>
-							<td class="mono">{d.name}</td>
+							<td class="mono"><a href="/db/{data.target.name}/db/{encodeURIComponent(d.name)}">{d.name}</a></td>
 							<td class="num">{fmtBytes(d.bytes)}</td>
 						</tr>
 					{/each}
 				</tbody>
 			</table>
 		</section>
+
+		{#if data.slow}
+			<section class="card">
+				<h2>Top slow queries <span class="muted small">(pg_stat_statements, by total exec time)</span></h2>
+				{#if !data.slow.ok}
+					<p class="muted small">
+						Not available: <code>{data.slow.reason}</code>
+						<br />
+						Install with <code>CREATE EXTENSION pg_stat_statements;</code> in any tracked db.
+					</p>
+				{:else if data.slow.rows.length === 0}
+					<p class="muted small">No queries recorded yet.</p>
+				{:else}
+					<table>
+						<thead><tr><th>Query</th><th class="num">Calls</th><th class="num">Total ms</th><th class="num">Mean ms</th><th class="num">Rows</th></tr></thead>
+						<tbody>
+							{#each data.slow.rows as q}
+								<tr>
+									<td class="query"><pre>{q.query}</pre></td>
+									<td class="num">{q.calls.toLocaleString()}</td>
+									<td class="num">{Math.round(q.totalMs).toLocaleString()}</td>
+									<td class="num">{q.meanMs.toFixed(1)}</td>
+									<td class="num">{q.rows.toLocaleString()}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{/if}
+			</section>
+		{/if}
 
 		{#if s.version}
 			<p class="muted small">Version: <code>{s.version}</code></p>
@@ -185,7 +215,7 @@
 		</section>
 
 		<section class="card">
-			<h2>Databases</h2>
+			<h2>Databases <span class="muted small">(click to drill in)</span></h2>
 			{#if s.dbs.length === 0}
 				<p class="muted small">No accessible databases.</p>
 			{:else}
@@ -194,7 +224,7 @@
 					<tbody>
 						{#each s.dbs as d}
 							<tr>
-								<td class="mono">{d.name}</td>
+								<td class="mono"><a href="/db/{data.target.name}/db/{encodeURIComponent(d.name)}">{d.name}</a></td>
 								<td class="num">{fmtBytes(d.bytes)}</td>
 							</tr>
 						{/each}
@@ -282,6 +312,18 @@
 	td { padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--rule); color: var(--fg-soft); }
 	tr:hover td { background: rgba(255, 255, 255, 0.02); }
 	td.mono { color: var(--fg); font-family: var(--font-mono); font-size: 0.85em; }
+	td.mono a { color: var(--fg); }
+	td.mono a:hover { color: var(--accent); }
+	td.query pre {
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: 0.78em;
+		max-width: 480px;
+		max-height: 6em;
+		overflow: auto;
+		white-space: pre-wrap;
+		color: var(--fg);
+	}
 
 	.error {
 		padding: 0.75rem 1rem;

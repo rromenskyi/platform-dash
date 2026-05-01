@@ -59,6 +59,38 @@ function getPool(targetName: string, uri: string): pg.Pool {
 	return pool;
 }
 
+// Per-(target,db) pool cache. Drill-in pages connect to a specific
+// database to read its tables / indexes. The base URI's db (usually
+// `postgres`) only sees server-wide stats; per-relation reads need
+// the actual db connection.
+function getPoolForDb(targetName: string, uri: string, dbName: string): pg.Pool {
+	const key = `${targetName}::${dbName}`;
+	const cached = pools.get(key);
+	if (cached) return cached;
+	// Rewrite the URI's pathname to the target db; preserve everything
+	// else (host, creds, sslmode, etc).
+	let connStr = uri;
+	try {
+		const u = new URL(uri);
+		u.pathname = `/${dbName}`;
+		connStr = u.toString();
+	} catch {
+		/* malformed URI — let pg.Pool fail loudly on first acquire */
+	}
+	const pool = new pg.Pool({
+		connectionString: connStr,
+		max: 2,
+		idleTimeoutMillis: 60_000,
+		connectionTimeoutMillis: 5_000,
+		application_name: 'platform-dash'
+	});
+	pool.on('error', (err) => {
+		console.error(`pg pool [${key}] idle error`, err);
+	});
+	pools.set(key, pool);
+	return pool;
+}
+
 export async function fetchPgStats(
 	targetName: string,
 	uri: string,
@@ -151,5 +183,185 @@ export async function fetchPgStats(
 			totalBytes: 0,
 			connections: { active: 0, idle: 0, idleInTx: 0, other: 0, max: 0 }
 		};
+	}
+}
+
+// ── Per-db drill-in ──────────────────────────────────────────────────────────
+
+export type PgRelation = {
+	schema: string;
+	name: string;
+	kind: string; // 'table' | 'index' | 'view' | 'matview' | ...
+	bytes: number;
+	rows: number;
+};
+
+export type PgDbDetail = {
+	ok: boolean;
+	error?: string;
+	dbName: string;
+	totalBytes: number;
+	relations: PgRelation[];
+	connectError?: string;
+};
+
+const KIND_LABEL: Record<string, string> = {
+	r: 'table',
+	i: 'index',
+	v: 'view',
+	m: 'matview',
+	p: 'partitioned',
+	S: 'sequence',
+	t: 'toast'
+};
+
+export async function fetchPgDbDetail(
+	targetName: string,
+	uri: string,
+	dbName: string,
+	session: Session | null,
+	cluster?: string
+): Promise<PgDbDetail> {
+	const baseAudit = {
+		user: session?.user?.email ?? session?.user?.name ?? 'unknown',
+		roles: session?.roles ?? [],
+		cluster: cluster ?? 'external',
+		action: 'db-stats-pg-drill',
+		target: { kind: 'Database', name: targetName, db: dbName }
+	};
+	const start = performance.now();
+	try {
+		const pool = getPoolForDb(targetName, uri, dbName);
+		const client = await pool.connect();
+		try {
+			const res = await client.query<{
+				nspname: string;
+				relname: string;
+				relkind: string;
+				bytes: string;
+				rows: string;
+			}>(
+				`SELECT n.nspname, c.relname, c.relkind,
+					pg_total_relation_size(c.oid) AS bytes,
+					COALESCE(c.reltuples, 0)::bigint AS rows
+				FROM pg_class c
+				JOIN pg_namespace n ON n.oid = c.relnamespace
+				WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+				  AND c.relkind IN ('r', 'p', 'm', 'v', 'i')
+				ORDER BY pg_total_relation_size(c.oid) DESC
+				LIMIT 100`
+			);
+			const relations = res.rows.map((r) => ({
+				schema: r.nspname,
+				name: r.relname,
+				kind: KIND_LABEL[r.relkind] ?? r.relkind,
+				bytes: Number(r.bytes),
+				rows: Number(r.rows)
+			}));
+			const totalBytes = relations
+				.filter((r) => r.kind !== 'index')
+				.reduce((a, b) => a + b.bytes, 0);
+			record({
+				...baseAudit,
+				outcome: 'ok',
+				durationMs: Math.round(performance.now() - start)
+			});
+			return { ok: true, dbName, totalBytes, relations };
+		} finally {
+			client.release();
+		}
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		record({
+			...baseAudit,
+			outcome: 'error',
+			message: msg,
+			durationMs: Math.round(performance.now() - start)
+		});
+		return {
+			ok: false,
+			error: msg,
+			dbName,
+			totalBytes: 0,
+			relations: []
+		};
+	}
+}
+
+// ── Slow queries (pg_stat_statements, optional extension) ────────────────────
+
+export type PgSlowQuery = {
+	query: string;
+	calls: number;
+	totalMs: number;
+	meanMs: number;
+	rows: number;
+};
+
+export type PgSlowQueriesResult =
+	| { ok: true; rows: PgSlowQuery[] }
+	| { ok: false; reason: string };
+
+export async function fetchPgSlowQueries(
+	targetName: string,
+	uri: string,
+	session: Session | null,
+	cluster?: string
+): Promise<PgSlowQueriesResult> {
+	const pool = getPool(targetName, uri);
+	const baseAudit = {
+		user: session?.user?.email ?? session?.user?.name ?? 'unknown',
+		roles: session?.roles ?? [],
+		cluster: cluster ?? 'external',
+		action: 'db-stats-pg-slow',
+		target: { kind: 'Database', name: targetName }
+	};
+	const start = performance.now();
+	try {
+		const client = await pool.connect();
+		try {
+			// pg_stat_statements ships as an extension (default OFF on
+			// most installs). Surface the missing-extension case as a
+			// soft error rather than a 500 — operator can install via
+			// CREATE EXTENSION pg_stat_statements; once they're ready.
+			const res = await client.query<{
+				query: string;
+				calls: string;
+				total_exec_time: string;
+				mean_exec_time: string;
+				rows: string;
+			}>(
+				`SELECT query, calls, total_exec_time, mean_exec_time, rows
+				FROM pg_stat_statements
+				ORDER BY total_exec_time DESC
+				LIMIT 20`
+			);
+			record({
+				...baseAudit,
+				outcome: 'ok',
+				durationMs: Math.round(performance.now() - start)
+			});
+			return {
+				ok: true,
+				rows: res.rows.map((r) => ({
+					query: r.query,
+					calls: Number(r.calls),
+					totalMs: Number(r.total_exec_time),
+					meanMs: Number(r.mean_exec_time),
+					rows: Number(r.rows)
+				}))
+			};
+		} finally {
+			client.release();
+		}
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		record({
+			...baseAudit,
+			outcome: 'error',
+			message: msg,
+			durationMs: Math.round(performance.now() - start)
+		});
+		return { ok: false, reason: msg };
 	}
 }

@@ -2,7 +2,12 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { requireRead } from '$lib/authz';
 import { ensureFresh, getTarget, safeHost } from '$lib/db-targets.server';
-import { fetchPgStats, type PgStats } from '$lib/db-pg.server';
+import {
+	fetchPgStats,
+	fetchPgSlowQueries,
+	type PgStats,
+	type PgSlowQueriesResult
+} from '$lib/db-pg.server';
 import { fetchRedisStats, type RedisStats } from '$lib/db-redis.server';
 import { fetchMysqlStats, type MysqlStats } from '$lib/db-mysql.server';
 
@@ -46,9 +51,13 @@ export const load: PageServerLoad = async (event) => {
 	}
 
 	if (t.kind === 'postgres') {
-		const stats = await fetchPgStats(t.name, t.uri, session, t.cluster);
+		const [stats, slow] = await Promise.all([
+			fetchPgStats(t.name, t.uri, session, t.cluster),
+			fetchPgSlowQueries(t.name, t.uri, session, t.cluster)
+		]);
 		return {
 			detail: { ok: true, kind: 'postgres', label, cluster: t.cluster, host, stats } satisfies DbDetail,
+			slow: slow as PgSlowQueriesResult,
 			target: { name: t.name, kind: t.kind, label, cluster: t.cluster, host }
 		};
 	}
