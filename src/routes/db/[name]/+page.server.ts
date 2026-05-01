@@ -4,11 +4,15 @@ import { requireRead } from '$lib/authz';
 import { ensureFresh, getTarget, safeHost } from '$lib/db-targets.server';
 import { fetchPgStats, type PgStats } from '$lib/db-pg.server';
 import { fetchRedisStats, type RedisStats } from '$lib/db-redis.server';
+import { fetchMysqlStats, type MysqlStats } from '$lib/db-mysql.server';
+
+export type DbKindUI = 'postgres' | 'redis' | 'mysql';
 
 export type DbDetail =
 	| { ok: true; kind: 'postgres'; label: string; cluster?: string; host: string; stats: PgStats }
 	| { ok: true; kind: 'redis'; label: string; cluster?: string; host: string; stats: RedisStats }
-	| { ok: false; reason: string; label: string; cluster?: string; host: string; kind: 'postgres' | 'redis' };
+	| { ok: true; kind: 'mysql'; label: string; cluster?: string; host: string; stats: MysqlStats }
+	| { ok: false; reason: string; label: string; cluster?: string; host: string; kind: DbKindUI };
 
 // Detail: fires the predefined stat queries and returns whatever
 // came back. Errors are bubbled up through the union return type so
@@ -47,11 +51,17 @@ export const load: PageServerLoad = async (event) => {
 			detail: { ok: true, kind: 'postgres', label, cluster: t.cluster, host, stats } satisfies DbDetail,
 			target: { name: t.name, kind: t.kind, label, cluster: t.cluster, host }
 		};
-	} else {
-		const stats = await fetchRedisStats(t.name, t.uri, session, t.cluster);
+	}
+	if (t.kind === 'mysql') {
+		const stats = await fetchMysqlStats(t.name, t.uri, session, t.cluster);
 		return {
-			detail: { ok: true, kind: 'redis', label, cluster: t.cluster, host, stats } satisfies DbDetail,
+			detail: { ok: true, kind: 'mysql', label, cluster: t.cluster, host, stats } satisfies DbDetail,
 			target: { name: t.name, kind: t.kind, label, cluster: t.cluster, host }
 		};
 	}
+	const stats = await fetchRedisStats(t.name, t.uri, session, t.cluster);
+	return {
+		detail: { ok: true, kind: 'redis', label, cluster: t.cluster, host, stats } satisfies DbDetail,
+		target: { name: t.name, kind: t.kind, label, cluster: t.cluster, host }
+	};
 };
