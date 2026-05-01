@@ -1,4 +1,11 @@
-import { KubeConfig, CoreV1Api, AppsV1Api, BatchV1Api } from '@kubernetes/client-node';
+import {
+	KubeConfig,
+	CoreV1Api,
+	AppsV1Api,
+	BatchV1Api,
+	ApiextensionsV1Api,
+	CustomObjectsApi
+} from '@kubernetes/client-node';
 
 // Server-only: `@kubernetes/client-node` pulls in `node:fs`, `node:http2`,
 // etc. which Vite cannot resolve for the browser bundle. The `.server.ts`
@@ -29,3 +36,7 @@ function getKubeConfig(): KubeConfig {
 export const core = (): CoreV1Api => getKubeConfig().makeApiClient(CoreV1Api);
 export const apps = (): AppsV1Api => getKubeConfig().makeApiClient(AppsV1Api);
 export const batch = (): BatchV1Api => getKubeConfig().makeApiClient(BatchV1Api);
+export const apiextensions = (): ApiextensionsV1Api =>
+	getKubeConfig().makeApiClient(ApiextensionsV1Api);
+export const customObjects = (): CustomObjectsApi =>
+	getKubeConfig().makeApiClient(CustomObjectsApi);

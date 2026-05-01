@@ -18,6 +18,7 @@
 				{ href: '/k8s', label: 'Overview' },
 				{ href: '/k8s/workloads', label: 'Workloads' },
 				{ href: '/k8s/nodes', label: 'Nodes' },
+				{ href: '/k8s/crds', label: 'CRDs' },
 				{ href: '/k8s/monitoring', label: 'Monitoring' }
 			]
 		}

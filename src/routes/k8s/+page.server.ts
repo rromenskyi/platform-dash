@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { core, apps } from '$lib/k8s.server';
+import { core, apps, apiextensions } from '$lib/k8s.server';
 
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
@@ -15,14 +15,24 @@ export const load: PageServerLoad = async (event) => {
 		namespaces: number;
 		pods: { running: number; pending: number; failed: number; total: number };
 		deployments: { ready: number; total: number };
+		crds: number;
 	};
 
 	try {
-		const [nodesRes, nsRes, podsRes, depsRes] = await Promise.all([
+		const [nodesRes, nsRes, podsRes, depsRes, crdsRes] = await Promise.all([
 			core().listNode(),
 			core().listNamespace(),
 			core().listPodForAllNamespaces(),
-			apps().listDeploymentForAllNamespaces()
+			apps().listDeploymentForAllNamespaces(),
+			apiextensions()
+				.listCustomResourceDefinition()
+				// CRDs are non-critical for the overview — if RBAC is missing
+				// or the apiextensions group is unreachable, fall through to
+				// `crds: 0` instead of blanking the whole page.
+				.catch((err) => {
+					console.warn('list crds failed (overview)', err);
+					return { items: [] as unknown[] };
+				})
 		]);
 
 		const nodes = nodesRes.items;
@@ -47,7 +57,8 @@ export const load: PageServerLoad = async (event) => {
 				failed: phaseCount('Failed'),
 				total: pods.length
 			},
-			deployments: { ready: depsReady, total: deps.length }
+			deployments: { ready: depsReady, total: deps.length },
+			crds: crdsRes.items.length
 		};
 	} catch (err) {
 		// Surface the failure to the page rather than 500 — RBAC
@@ -58,7 +69,8 @@ export const load: PageServerLoad = async (event) => {
 			nodes: { ready: 0, total: 0 },
 			namespaces: 0,
 			pods: { running: 0, pending: 0, failed: 0, total: 0 },
-			deployments: { ready: 0, total: 0 }
+			deployments: { ready: 0, total: 0 },
+			crds: 0
 		};
 	}
 
