@@ -85,7 +85,7 @@ function fromEnv(): DbTarget[] {
 		const seen = new Set<string>();
 		for (const t of parsed as EnvTarget[]) {
 			if (!t?.name || !t?.kind || !t?.uriEnv) continue;
-			if (t.kind !== 'postgres' && t.kind !== 'redis') continue;
+			if (t.kind !== 'postgres' && t.kind !== 'redis' && t.kind !== 'mysql') continue;
 			if (seen.has(t.name)) continue;
 			seen.add(t.name);
 			const uri = env[t.uriEnv];
@@ -144,7 +144,7 @@ async function fromConfigMap(): Promise<DbTarget[]> {
 		await Promise.all(
 			list.map(async (t): Promise<DbTarget | null> => {
 				if (!t?.name || !t?.kind || !t?.secret?.name || !t?.secret?.key) return null;
-				if (t.kind !== 'postgres' && t.kind !== 'redis') return null;
+				if (t.kind !== 'postgres' && t.kind !== 'redis' && t.kind !== 'mysql') return null;
 				const secNs = t.secret.namespace || cmNs;
 				try {
 					const sec = await core(cluster).readNamespacedSecret({

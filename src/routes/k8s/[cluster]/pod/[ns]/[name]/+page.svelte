@@ -222,6 +222,7 @@
 				<th>Image</th>
 				<th>Requests</th>
 				<th>Limits</th>
+				{#if data.metricsAvailable}<th>Usage</th>{/if}
 				<th>Logs</th>
 			</tr>
 		</thead>
@@ -243,6 +244,16 @@
 					<td class="mono image">{c.image}</td>
 					<td>{fmtRes(c.requests)}</td>
 					<td>{fmtRes(c.limits)}</td>
+					{#if data.metricsAvailable}
+						<td class="usage">
+							{#if c.usage}
+								<div>cpu {c.usage.cpu ?? '—'}</div>
+								<div>mem {c.usage.memory ?? '—'}</div>
+							{:else}
+								<span class="muted">—</span>
+							{/if}
+						</td>
+					{/if}
 					<td>
 						<a class="logs-link" href="/k8s/{data.cluster}/pod/{data.pod.namespace}/{data.pod.name}/logs?container={encodeURIComponent(c.name)}">view →</a>
 					</td>
@@ -250,6 +261,12 @@
 			{/each}
 		</tbody>
 	</table>
+	{#if !data.metricsAvailable}
+		<p class="muted small hint">
+			Live CPU / memory unavailable — install metrics-server in the cluster (or grant the dashboard SA <code>get</code> on
+			<code>metrics.k8s.io/v1beta1</code>) to see actual usage next to requests/limits.
+		</p>
+	{/if}
 </section>
 
 <section class="card">
@@ -498,6 +515,19 @@
 	}
 	td.mono { font-family: var(--font-mono); font-size: 0.85em; color: var(--fg); }
 	td.image { font-size: 0.78em; word-break: break-all; }
+	td.usage {
+		font-family: var(--font-mono);
+		font-size: 0.78em;
+		color: var(--accent);
+	}
+	.hint {
+		margin: 0.5rem 0 0;
+		padding: 0.55rem 0.85rem;
+		background: var(--bg-elev);
+		border: 1px dashed var(--rule);
+		border-radius: 6px;
+	}
+	.hint code { font-family: var(--font-mono); color: var(--fg); }
 	.logs-link { color: var(--accent); font-size: 0.82rem; }
 	.logs-link:hover { text-decoration: underline; }
 	td.bad { color: #fb7185; }

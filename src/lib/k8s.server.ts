@@ -6,7 +6,8 @@ import {
 	ApiextensionsV1Api,
 	CustomObjectsApi,
 	Log,
-	Watch
+	Watch,
+	Metrics
 } from '@kubernetes/client-node';
 import { getKubeConfig } from './clusters.server';
 
@@ -40,3 +41,7 @@ export const logger = (cluster: string): Log => new Log(getKubeConfig(cluster));
 // and fires a callback per event. Callers thread the events into an
 // SSE response back to the browser.
 export const watcher = (cluster: string): Watch => new Watch(getKubeConfig(cluster));
+// `Metrics` queries metrics.k8s.io (metrics-server) for pod / node
+// CPU + memory usage. Optional dep — clusters without metrics-server
+// installed return 404; callers must catch.
+export const metrics = (cluster: string): Metrics => new Metrics(getKubeConfig(cluster));

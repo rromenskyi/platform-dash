@@ -107,6 +107,9 @@
 	{:else}
 		· request totals are cluster-wide
 	{/if}
+	{#if !data.metricsAvailable}
+		· <em>actual usage unavailable (no metrics-server)</em>
+	{/if}
 </p>
 
 {#each data.rows as n}
@@ -114,6 +117,8 @@
 	{@const memAlloc = parseMemLocal(n.allocatable.memory)}
 	{@const cpuPct = pct(n.usage.cpuRequestsMilli, cpuAlloc)}
 	{@const memPct = pct(n.usage.memoryRequestsBytes, memAlloc)}
+	{@const actualCpuPct = n.usage.actualCpuMilli != null ? pct(n.usage.actualCpuMilli, cpuAlloc) : null}
+	{@const actualMemPct = n.usage.actualMemoryBytes != null ? pct(n.usage.actualMemoryBytes, memAlloc) : null}
 	<section class="node">
 		<header class="node-head">
 			<div class="node-id">
@@ -144,11 +149,25 @@
 				<div class="bar"><div class="fill fill-{cpuPct >= 85 ? 'bad' : cpuPct >= 65 ? 'warn' : 'ok'}" style="width: {cpuPct}%"></div></div>
 				<span class="bar-num">{fmtMilli(n.usage.cpuRequestsMilli)} / {n.allocatable.cpu} ({cpuPct}%)</span>
 			</div>
+			{#if actualCpuPct !== null}
+				<div class="bar-row">
+					<span class="bar-label live">CPU actual</span>
+					<div class="bar"><div class="fill fill-{actualCpuPct >= 85 ? 'bad' : actualCpuPct >= 65 ? 'warn' : 'ok'}" style="width: {actualCpuPct}%"></div></div>
+					<span class="bar-num">{fmtMilli(n.usage.actualCpuMilli ?? 0)} / {n.allocatable.cpu} ({actualCpuPct}%)</span>
+				</div>
+			{/if}
 			<div class="bar-row">
 				<span class="bar-label">Memory requests</span>
 				<div class="bar"><div class="fill fill-{memPct >= 85 ? 'bad' : memPct >= 65 ? 'warn' : 'ok'}" style="width: {memPct}%"></div></div>
 				<span class="bar-num">{fmtBytes(n.usage.memoryRequestsBytes)} / {fmtBytes(memAlloc)} ({memPct}%)</span>
 			</div>
+			{#if actualMemPct !== null}
+				<div class="bar-row">
+					<span class="bar-label live">Memory actual</span>
+					<div class="bar"><div class="fill fill-{actualMemPct >= 85 ? 'bad' : actualMemPct >= 65 ? 'warn' : 'ok'}" style="width: {actualMemPct}%"></div></div>
+					<span class="bar-num">{fmtBytes(n.usage.actualMemoryBytes ?? 0)} / {fmtBytes(memAlloc)} ({actualMemPct}%)</span>
+				</div>
+			{/if}
 			<div class="bar-row">
 				<span class="bar-label">Pods</span>
 				<div class="bar"><div class="fill fill-{pct(n.usage.podsScheduled, parseInt(n.allocatable.pods, 10) || 0) >= 85 ? 'bad' : 'ok'}" style="width: {pct(n.usage.podsScheduled, parseInt(n.allocatable.pods, 10) || 0)}%"></div></div>
@@ -319,6 +338,7 @@
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 	}
+	.bar-label.live { color: var(--accent); }
 	.bar {
 		height: 8px;
 		background: var(--bg);
