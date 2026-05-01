@@ -4,7 +4,8 @@ import {
 	BatchV1Api,
 	ApiextensionsV1Api,
 	CustomObjectsApi,
-	Log
+	Log,
+	Watch
 } from '@kubernetes/client-node';
 import { getKubeConfig } from './clusters.server';
 
@@ -32,3 +33,7 @@ export const customObjects = (cluster: string): CustomObjectsApi =>
 // raw HTTP log endpoint that pipes the response into a Writable. We
 // expose it as a factory for symmetry with the other k8s clients.
 export const logger = (cluster: string): Log => new Log(getKubeConfig(cluster));
+// `Watch` opens a long-lived ?watch=1 connection to any list endpoint
+// and fires a callback per event. Callers thread the events into an
+// SSE response back to the browser.
+export const watcher = (cluster: string): Watch => new Watch(getKubeConfig(cluster));
