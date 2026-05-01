@@ -4,6 +4,8 @@
 	import { signIn, signOut } from '@auth/sveltekit/client';
 	import { page } from '$app/state';
 	import type { SerializableNode } from '$lib/resource';
+	import Toasts from '$lib/Toasts.svelte';
+	import SavedViews from '$lib/SavedViews.svelte';
 
 	let { children } = $props();
 	let session = $derived(page.data.session);
@@ -95,8 +97,14 @@
 <header class="topbar">
 	<a class="brand" href="/">platform</a>
 	<nav class="topnav">
+		{#if session?.user && canRead}
+			<a href="/incident" class="incident" class:active={pathname === '/incident'} title="Snapshot of failing pods, bad nodes, warnings">⚠ Incident</a>
+		{/if}
 		<a href="/profile" class:active={pathname === '/profile' || pathname.startsWith('/profile/')}>Profile</a>
 		<a href="/settings" class:active={pathname === '/settings' || pathname.startsWith('/settings/')}>Settings</a>
+		{#if session?.user && canRead}
+			<SavedViews />
+		{/if}
 		{#if session?.user}
 			{#if roleLabel}
 				<span class="role role-{roleLabel}">{roleLabel}</span>
@@ -177,6 +185,8 @@
 	</main>
 </div>
 
+<Toasts />
+
 <style>
 	.topbar {
 		display: flex;
@@ -206,6 +216,15 @@
 	}
 	.topnav a:hover { color: var(--fg); }
 	.topnav a.active { color: var(--accent); }
+	.topnav a.incident {
+		font-size: 0.85rem;
+		padding: 0.2rem 0.55rem;
+		border: 1px solid #fcd34d;
+		border-radius: 4px;
+		color: #fcd34d;
+	}
+	.topnav a.incident:hover { background: rgba(252, 211, 77, 0.08); }
+	.topnav a.incident.active { background: rgba(252, 211, 77, 0.15); }
 
 	.muted {
 		color: var(--muted);

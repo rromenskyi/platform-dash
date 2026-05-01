@@ -4,6 +4,7 @@
 	import { onDestroy } from 'svelte';
 	import type { WorkloadRow } from './+page.server';
 	import { page } from '$app/state';
+	import KubectlMenu from '$lib/KubectlMenu.svelte';
 
 	let { data } = $props();
 
@@ -308,9 +309,7 @@
 			<th class="sortable" onclick={() => setSort('status')}>Status{sortIndicator('status')}</th>
 			<th class="sortable" onclick={() => setSort('restarts')}>Restarts{sortIndicator('restarts')}</th>
 			<th class="sortable" onclick={() => setSort('age')}>Age{sortIndicator('age')}</th>
-			{#if canWrite}
-				<th>Actions</th>
-			{/if}
+			<th>Actions</th>
 		</tr>
 	</thead>
 	<tbody>
@@ -331,6 +330,7 @@
 				<td>{age(r.creationTimestamp)}</td>
 				{#if canWrite}
 					<td class="actions">
+						<KubectlMenu target={{ cluster: data.cluster, kind: r.kind, namespace: r.namespace, name: r.name }} />
 						{#if r.kind === 'Deployment' || r.kind === 'StatefulSet'}
 							<button class="act" onclick={() => onRestart(r)} title="Rollout restart">restart</button>
 							<button class="act" onclick={() => onScale(r)} title="Scale replicas">scale</button>
@@ -338,6 +338,10 @@
 						{#if r.kind === 'Pod'}
 							<button class="act danger" onclick={() => onDelete(r)} title="Delete pod">delete</button>
 						{/if}
+					</td>
+				{:else}
+					<td class="actions">
+						<KubectlMenu target={{ cluster: data.cluster, kind: r.kind, namespace: r.namespace, name: r.name }} />
 					</td>
 				{/if}
 			</tr>
