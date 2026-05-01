@@ -82,6 +82,7 @@
 				<th>Image</th>
 				<th>Requests</th>
 				<th>Limits</th>
+				<th>Logs</th>
 			</tr>
 		</thead>
 		<tbody>
@@ -102,6 +103,9 @@
 					<td class="mono image">{c.image}</td>
 					<td>{fmtRes(c.requests)}</td>
 					<td>{fmtRes(c.limits)}</td>
+					<td>
+						<a class="logs-link" href="/k8s/{data.cluster}/pod/{data.pod.namespace}/{data.pod.name}/logs?container={encodeURIComponent(c.name)}">view →</a>
+					</td>
 				</tr>
 			{/each}
 		</tbody>
@@ -347,6 +351,8 @@
 	}
 	td.mono { font-family: var(--font-mono); font-size: 0.85em; color: var(--fg); }
 	td.image { font-size: 0.78em; word-break: break-all; }
+	.logs-link { color: var(--accent); font-size: 0.82rem; }
+	.logs-link:hover { text-decoration: underline; }
 	td.bad { color: #fb7185; }
 	td.msg { color: var(--fg); max-width: 540px; }
 

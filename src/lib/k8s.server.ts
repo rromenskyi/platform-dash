@@ -3,7 +3,8 @@ import {
 	AppsV1Api,
 	BatchV1Api,
 	ApiextensionsV1Api,
-	CustomObjectsApi
+	CustomObjectsApi,
+	Log
 } from '@kubernetes/client-node';
 import { getKubeConfig } from './clusters.server';
 
@@ -27,3 +28,7 @@ export const apiextensions = (cluster: string): ApiextensionsV1Api =>
 	getKubeConfig(cluster).makeApiClient(ApiextensionsV1Api);
 export const customObjects = (cluster: string): CustomObjectsApi =>
 	getKubeConfig(cluster).makeApiClient(CustomObjectsApi);
+// `Log` isn't a generated API client — it's a thin wrapper around the
+// raw HTTP log endpoint that pipes the response into a Writable. We
+// expose it as a factory for symmetry with the other k8s clients.
+export const logger = (cluster: string): Log => new Log(getKubeConfig(cluster));
