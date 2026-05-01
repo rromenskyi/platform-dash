@@ -86,9 +86,11 @@ export function buildK8sTree(): ResourceNode[] {
 	}));
 }
 
-// Top-level: only k8s family for now. New families append here.
+// Top-level: k8s family + db family. New families append here.
+import { buildDbTree } from './resource-tree-db.server';
 export function buildAllTrees(): ResourceNode[] {
-	return [
+	const dbChildren = buildDbTree();
+	const trees: ResourceNode[] = [
 		{
 			id: 'k8s',
 			label: 'k8s',
@@ -96,4 +98,13 @@ export function buildAllTrees(): ResourceNode[] {
 			children: () => buildK8sTree()
 		}
 	];
+	if (dbChildren.length > 0) {
+		trees.push({
+			id: 'db',
+			label: 'db',
+			meta: { family: 'db' },
+			children: () => dbChildren
+		});
+	}
+	return trees;
 }
