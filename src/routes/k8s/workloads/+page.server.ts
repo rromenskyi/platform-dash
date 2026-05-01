@@ -19,6 +19,10 @@ export const load: PageServerLoad = async (event) => {
 		throw redirect(303, '/');
 	}
 
+	// Global namespace filter from /k8s/+layout.server.ts via the URL.
+	// Empty string means "all namespaces".
+	const ns = event.url.searchParams.get('ns') || '';
+
 	const rows: WorkloadRow[] = [];
 	const errors: string[] = [];
 
@@ -28,7 +32,9 @@ export const load: PageServerLoad = async (event) => {
 	await Promise.all([
 		(async () => {
 			try {
-				const res = await time('listPodForAllNamespaces', () => core().listPodForAllNamespaces());
+				const res = ns
+					? await time('listNamespacedPod', () => core().listNamespacedPod({ namespace: ns }))
+					: await time('listPodForAllNamespaces', () => core().listPodForAllNamespaces());
 				for (const p of res.items) {
 					const containers = p.status?.containerStatuses ?? [];
 					const ready = containers.filter((c) => c.ready).length;
@@ -53,9 +59,13 @@ export const load: PageServerLoad = async (event) => {
 		})(),
 		(async () => {
 			try {
-				const res = await time('listDeploymentForAllNamespaces', () =>
-					apps().listDeploymentForAllNamespaces()
-				);
+				const res = ns
+					? await time('listNamespacedDeployment', () =>
+							apps().listNamespacedDeployment({ namespace: ns })
+						)
+					: await time('listDeploymentForAllNamespaces', () =>
+							apps().listDeploymentForAllNamespaces()
+						);
 				for (const d of res.items) {
 					const total = d.spec?.replicas ?? 0;
 					const ready = d.status?.readyReplicas ?? 0;
@@ -78,9 +88,13 @@ export const load: PageServerLoad = async (event) => {
 		})(),
 		(async () => {
 			try {
-				const res = await time('listStatefulSetForAllNamespaces', () =>
-					apps().listStatefulSetForAllNamespaces()
-				);
+				const res = ns
+					? await time('listNamespacedStatefulSet', () =>
+							apps().listNamespacedStatefulSet({ namespace: ns })
+						)
+					: await time('listStatefulSetForAllNamespaces', () =>
+							apps().listStatefulSetForAllNamespaces()
+						);
 				for (const s of res.items) {
 					const total = s.spec?.replicas ?? 0;
 					const ready = s.status?.readyReplicas ?? 0;

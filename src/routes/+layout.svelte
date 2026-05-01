@@ -42,6 +42,16 @@
 	const visibleNav = $derived(nav.filter((g) => !g.adminOnly || canWrite));
 	const allHrefs = $derived(visibleNav.flatMap((s) => s.items.map((i) => i.href)));
 
+	// Carry the global namespace selection across /k8s/* nav clicks.
+	// Without this, clicking "Workloads" while filtered to ns=foo would
+	// drop the filter. Non-/k8s links (Profile/Settings/Admin) ignore it
+	// because the selector lives only inside the /k8s layout.
+	let currentNs = $derived(page.url.searchParams.get('ns') || '');
+	function navHref(href: string): string {
+		if (!currentNs || !href.startsWith('/k8s')) return href;
+		return `${href}?ns=${encodeURIComponent(currentNs)}`;
+	}
+
 	function isActive(href: string): boolean {
 		// The most-specific matching href wins. Pure prefix-matching
 		// would light up `/k8s` (Overview) alongside `/k8s/workloads`
@@ -89,7 +99,7 @@
 					<ul>
 						{#each group.items as item}
 							<li>
-								<a href={item.href} class:active={isActive(item.href)}>{item.label}</a>
+								<a href={navHref(item.href)} class:active={isActive(item.href)}>{item.label}</a>
 							</li>
 						{/each}
 					</ul>

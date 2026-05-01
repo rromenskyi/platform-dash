@@ -69,6 +69,10 @@ export const load: PageServerLoad = async (event) => {
 	let instances: CrdInstance[] = [];
 	let instancesError: string | null = null;
 
+	// Global ns filter from /k8s/+layout.server.ts via the URL — only
+	// meaningful for Namespaced CRDs; cluster-scoped objects ignore it.
+	const nsFilter = event.url.searchParams.get('ns') || '';
+
 	const servingVersion = pickServingVersion(versions);
 	if (servingVersion) {
 		try {
@@ -76,13 +80,22 @@ export const load: PageServerLoad = async (event) => {
 			// We only touch metadata here, which every k8s object guarantees.
 			const res =
 				scope === 'Namespaced'
-					? await time('listCustomObjectForAllNamespaces', () =>
-							customObjects().listCustomObjectForAllNamespaces({
-								group,
-								version: servingVersion,
-								plural
-							})
-						)
+					? nsFilter
+						? await time('listNamespacedCustomObject', () =>
+								customObjects().listNamespacedCustomObject({
+									group,
+									version: servingVersion,
+									namespace: nsFilter,
+									plural
+								})
+							)
+						: await time('listCustomObjectForAllNamespaces', () =>
+								customObjects().listCustomObjectForAllNamespaces({
+									group,
+									version: servingVersion,
+									plural
+								})
+							)
 					: await time('listClusterCustomObject', () =>
 							customObjects().listClusterCustomObject({
 								group,
