@@ -1,11 +1,83 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { onDestroy } from 'svelte';
+	import { page } from '$app/state';
 
 	let { data } = $props();
 
 	let refreshing = $state(false);
 	let showAnnotations = $state(false);
+	let actionMsg = $state<string | null>(null);
+	let actionErr = $state<string | null>(null);
+	let liveEvents = $state(false);
+	// Mirror data.events into a mutable list so live deltas can splice
+	// in place without overwriting the loader's snapshot. Re-seeded on
+	// every loader fire via the $effect below.
+	let liveEventList = $state<typeof data.events>([]);
+
+	const canWrite = $derived(!!page.data.canWrite);
+
+	const ownerControllable = $derived.by(() => {
+		const o = data.pod.ownerRefs.find(
+			(r) => r.kind === 'ReplicaSet' || r.kind === 'StatefulSet' || r.kind === 'Deployment'
+		);
+		if (!o) return null;
+		// ReplicaSet name = "<deployment>-<hash>"; restart targets the
+		// owning Deployment, not the ephemeral RS.
+		if (o.kind === 'ReplicaSet') {
+			const stripped = o.name.replace(/-[a-z0-9]+$/, '');
+			return stripped ? { kind: 'Deployment' as const, name: stripped } : null;
+		}
+		return { kind: o.kind as 'Deployment' | 'StatefulSet', name: o.name };
+	});
+
+	$effect(() => {
+		// Reset events list whenever loader fires (different pod).
+		liveEventList = data.events;
+	});
+
+	let es: EventSource | null = null;
+
+	function startEventStream() {
+		if (es) return;
+		const u = new URL(`/k8s/${data.cluster}/api/watch/events`, window.location.origin);
+		u.searchParams.set('ns', data.pod.namespace);
+		u.searchParams.set('name', data.pod.name);
+		u.searchParams.set('kind', 'Pod');
+		es = new EventSource(u.toString());
+		es.onmessage = (ev) => {
+			try {
+				const msg = JSON.parse(ev.data);
+				if (msg.type === 'error') {
+					actionErr = msg.message;
+					return;
+				}
+				const e = msg.event;
+				const idx = liveEventList.findIndex((x) => x.message === e.message && x.reason === e.reason);
+				if (msg.type === 'DELETED') {
+					if (idx >= 0) liveEventList.splice(idx, 1);
+				} else if (idx >= 0) {
+					liveEventList[idx] = { ...liveEventList[idx], ...e };
+				} else {
+					liveEventList = [e, ...liveEventList];
+				}
+				liveEventList.sort((a, b) => (b.lastSeen ?? '').localeCompare(a.lastSeen ?? ''));
+				liveEventList = liveEventList.slice(0, 200);
+			} catch {
+				/* */
+			}
+		};
+	}
+	function stopEventStream() {
+		es?.close();
+		es = null;
+	}
+	$effect(() => {
+		if (liveEvents) startEventStream();
+		else stopEventStream();
+	});
+	onDestroy(stopEventStream);
 
 	async function refresh() {
 		if (refreshing) return;
@@ -14,6 +86,44 @@
 			await invalidateAll();
 		} finally {
 			refreshing = false;
+		}
+	}
+
+	async function postAction(action: string, body: object) {
+		actionMsg = null;
+		actionErr = null;
+		const res = await fetch(`/k8s/${data.cluster}/api/${action}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(body)
+		});
+		if (!res.ok) {
+			const text = await res.text();
+			actionErr = `${action} failed (${res.status}): ${text || res.statusText}`;
+			return false;
+		}
+		actionMsg = `${action} ok`;
+		return true;
+	}
+
+	async function onRestartOwner() {
+		const o = ownerControllable;
+		if (!o) return;
+		if (!confirm(`Rollout restart ${o.kind} ${data.pod.namespace}/${o.name}?`)) return;
+		await postAction('restart', { kind: o.kind, namespace: data.pod.namespace, name: o.name });
+	}
+	async function onDeletePod() {
+		if (!confirm(`Delete pod ${data.pod.namespace}/${data.pod.name}?\n\nController will respawn if it has one.`))
+			return;
+		const ok = await postAction('pod-delete', {
+			namespace: data.pod.namespace,
+			name: data.pod.name
+		});
+		if (ok) {
+			// Pod is gone or about to be — bounce back to Workloads so the
+			// user doesn't sit on a 404 once the controller respawns under
+			// a new name.
+			await goto(`/k8s/${data.cluster}/workloads`);
 		}
 	}
 
@@ -40,10 +150,27 @@
 			{#if data.pod.qosClass}· QoS <code>{data.pod.qosClass}</code>{/if}
 		</p>
 	</div>
-	<button class="refresh" onclick={refresh} disabled={refreshing}>
-		<span class:spin={refreshing}>↻</span> Refresh
-	</button>
+	<div class="head-actions">
+		{#if canWrite}
+			{#if ownerControllable}
+				<button class="act" onclick={onRestartOwner} title="Rollout restart owning {ownerControllable.kind}">
+					restart {ownerControllable.kind.toLowerCase()}
+				</button>
+			{/if}
+			<button class="act danger" onclick={onDeletePod} title="Delete this pod">delete pod</button>
+		{/if}
+		<button class="refresh" onclick={refresh} disabled={refreshing}>
+			<span class:spin={refreshing}>↻</span> Refresh
+		</button>
+	</div>
 </div>
+
+{#if actionErr}
+	<p class="banner err">{actionErr}</p>
+{/if}
+{#if actionMsg}
+	<p class="banner ok">{actionMsg}</p>
+{/if}
 
 <section class="stats">
 	<div class="stat">
@@ -179,10 +306,17 @@
 </section>
 
 <section class="card">
-	<h2>Events <span class="muted small">(involvedObject={data.pod.namespace}/{data.pod.name})</span></h2>
+	<h2>
+		Events
+		<span class="muted small">(involvedObject={data.pod.namespace}/{data.pod.name})</span>
+		<label class="live-mini">
+			<input type="checkbox" bind:checked={liveEvents} />
+			<span class="dot {liveEvents ? 'on' : 'off'}"></span> live
+		</label>
+	</h2>
 	{#if data.eventsError}
 		<p class="error">Failed to list events: {data.eventsError}</p>
-	{:else if data.events.length === 0}
+	{:else if liveEventList.length === 0}
 		<p class="muted small">No events.</p>
 	{:else}
 		<table>
@@ -196,7 +330,7 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#each data.events as e}
+				{#each liveEventList as e}
 					<tr class:warn={e.type === 'Warning'}>
 						<td><span class="ev-type ev-type-{e.type.toLowerCase()}">{e.type}</span></td>
 						<td class="mono">{e.reason}</td>
@@ -444,6 +578,53 @@
 		border-radius: 8px;
 		color: #fb7185;
 	}
+
+	.head-actions {
+		display: inline-flex;
+		gap: 0.4rem;
+		align-items: center;
+	}
+	.act {
+		font: inherit;
+		font-size: 0.78rem;
+		padding: 0.35rem 0.75rem;
+		border: 1px solid var(--rule);
+		background: transparent;
+		color: var(--fg-soft);
+		border-radius: 6px;
+		cursor: pointer;
+	}
+	.act:hover { color: var(--fg); border-color: var(--accent); }
+	.act.danger:hover { color: #fb7185; border-color: #fb7185; }
+
+	.banner {
+		padding: 0.55rem 0.85rem;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		margin: 0.5rem 0;
+	}
+	.banner.err { background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; color: #fb7185; }
+	.banner.ok { background: rgba(110, 231, 183, 0.1); border: 1px solid #6ee7b7; color: #6ee7b7; }
+
+	.live-mini {
+		display: inline-flex;
+		gap: 0.3rem;
+		align-items: center;
+		font-size: 0.72rem;
+		font-weight: 400;
+		color: var(--fg-soft);
+		margin-left: 0.5rem;
+		cursor: pointer;
+	}
+	.live-mini input { accent-color: var(--accent); }
+	.dot {
+		display: inline-block;
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+	}
+	.dot.on { background: #6ee7b7; box-shadow: 0 0 5px #6ee7b7; }
+	.dot.off { background: var(--muted); }
 
 	.kv {
 		display: grid;

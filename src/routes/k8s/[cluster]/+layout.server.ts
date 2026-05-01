@@ -11,12 +11,14 @@ import { time } from '$lib/k8s-metrics.server';
 // selector and surfaces the current ?ns= filter to the UI.
 export const load: LayoutServerLoad = async (event) => {
 	const session = await event.locals.auth();
-	requireRead(session);
-
 	const cluster = event.params.cluster;
 	if (!isKnownCluster(cluster)) {
 		throw error(404, `Unknown cluster "${cluster}". Configured: ${listClusters().join(', ')}`);
 	}
+	// Cluster is known by the time we gate — pass it so cluster-scoped
+	// roles (cluster_<name>_admin/_sre) can grant access on top of the
+	// global platform_* roles.
+	requireRead(session, cluster);
 
 	let namespaces: string[] = [];
 	try {
@@ -31,7 +33,7 @@ export const load: LayoutServerLoad = async (event) => {
 
 	return {
 		session,
-		canWrite: canWrite(session),
+		canWrite: canWrite(session, cluster),
 		cluster,
 		clusters: listClusters(),
 		namespaces,
