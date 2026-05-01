@@ -229,13 +229,93 @@
 			if (!res.ok) {
 				const text = await res.text();
 				actionErr = `${action} failed (${res.status}): ${text || res.statusText}`;
-				return;
+				return false;
 			}
 			actionMsg = `${action} ok`;
 			if (!live) await invalidateAll();
+			return true;
 		} catch (err) {
 			actionErr = `${action} failed: ${err instanceof Error ? err.message : String(err)}`;
+			return false;
 		}
+	}
+
+	// ── Bulk selection ───────────────────────────────────────────────
+	let selected = $state<Set<string>>(new Set());
+	function rowKey(r: WorkloadRow): string {
+		return `${r.kind}|${r.namespace}|${r.name}`;
+	}
+	function isSelected(r: WorkloadRow): boolean {
+		return selected.has(rowKey(r));
+	}
+	function toggleSelected(r: WorkloadRow) {
+		const k = rowKey(r);
+		const next = new Set(selected);
+		if (next.has(k)) next.delete(k);
+		else next.add(k);
+		selected = next;
+	}
+	function selectAllVisible() {
+		const next = new Set(selected);
+		for (const r of filtered) next.add(rowKey(r));
+		selected = next;
+	}
+	function clearSelection() {
+		selected = new Set();
+	}
+	const selectedRows = $derived(filtered.filter((r) => selected.has(rowKey(r))));
+	const allVisibleSelected = $derived(
+		filtered.length > 0 && filtered.every((r) => selected.has(rowKey(r)))
+	);
+
+	const bulkPods = $derived(selectedRows.filter((r) => r.kind === 'Pod'));
+	const bulkRestartable = $derived(
+		selectedRows.filter((r) => r.kind === 'Deployment' || r.kind === 'StatefulSet')
+	);
+
+	async function bulkDelete() {
+		if (bulkPods.length === 0) return;
+		if (!confirm(`Delete ${bulkPods.length} pod(s)?\n\nControllers will respawn pods that have one.`))
+			return;
+		let ok = 0;
+		let fail = 0;
+		await Promise.all(
+			bulkPods.map(async (p) => {
+				const res = await fetch(`/k8s/${data.cluster}/api/pod-delete`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ namespace: p.namespace, name: p.name })
+				});
+				if (res.ok) ok++;
+				else fail++;
+			})
+		);
+		actionMsg = `delete: ${ok} ok${fail ? ` · ${fail} failed` : ''}`;
+		if (fail > 0) actionErr = `${fail} pod delete(s) failed`;
+		clearSelection();
+		if (!live) await invalidateAll();
+	}
+
+	async function bulkRestart() {
+		if (bulkRestartable.length === 0) return;
+		if (!confirm(`Rollout restart ${bulkRestartable.length} workload(s)?`)) return;
+		let ok = 0;
+		let fail = 0;
+		await Promise.all(
+			bulkRestartable.map(async (r) => {
+				const res = await fetch(`/k8s/${data.cluster}/api/restart`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ kind: r.kind, namespace: r.namespace, name: r.name })
+				});
+				if (res.ok) ok++;
+				else fail++;
+			})
+		);
+		actionMsg = `restart: ${ok} ok${fail ? ` · ${fail} failed` : ''}`;
+		if (fail > 0) actionErr = `${fail} restart(s) failed`;
+		clearSelection();
+		if (!live) await invalidateAll();
 	}
 
 	function onRestart(r: WorkloadRow) {
@@ -314,9 +394,39 @@
 	{#if sortKey !== 'chaos'}· click any column header to re-sort{/if}
 </p>
 
+{#if canWrite && selected.size > 0}
+	<div class="bulk-bar">
+		<span class="bulk-count">{selected.size} selected</span>
+		{#if bulkRestartable.length > 0}
+			<button class="bulk-act" onclick={bulkRestart}>
+				restart {bulkRestartable.length} workload{bulkRestartable.length === 1 ? '' : 's'}
+			</button>
+		{/if}
+		{#if bulkPods.length > 0}
+			<button class="bulk-act danger" onclick={bulkDelete}>
+				delete {bulkPods.length} pod{bulkPods.length === 1 ? '' : 's'}
+			</button>
+		{/if}
+		<button class="bulk-act" onclick={clearSelection}>clear</button>
+	</div>
+{/if}
+
 <table>
 	<thead>
 		<tr>
+			{#if canWrite}
+				<th class="check">
+					<input
+						type="checkbox"
+						checked={allVisibleSelected}
+						onchange={(e) =>
+							(e.currentTarget as HTMLInputElement).checked
+								? selectAllVisible()
+								: clearSelection()}
+						title="Select / clear all visible"
+					/>
+				</th>
+			{/if}
 			<th class="sortable" onclick={() => setSort('namespace')}>Namespace{sortIndicator('namespace')}</th>
 			<th class="sortable" onclick={() => setSort('kind')}>Kind{sortIndicator('kind')}</th>
 			<th class="sortable" onclick={() => setSort('name')}>Name{sortIndicator('name')}</th>
@@ -329,7 +439,16 @@
 	</thead>
 	<tbody>
 		{#each filtered as r}
-			<tr>
+			<tr class:row-selected={isSelected(r)}>
+				{#if canWrite}
+					<td class="check">
+						<input
+							type="checkbox"
+							checked={isSelected(r)}
+							onchange={() => toggleSelected(r)}
+						/>
+					</td>
+				{/if}
 				<td>{r.namespace}</td>
 				<td><span class="kind kind-{r.kind.toLowerCase()}">{r.kind}</span></td>
 				<td class="name">
@@ -579,4 +698,41 @@
 	}
 	.act:hover { color: var(--fg); border-color: var(--accent); }
 	.act.danger:hover { color: #fb7185; border-color: #fb7185; }
+
+	.bulk-bar {
+		position: sticky;
+		top: 0;
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		padding: 0.6rem 0.85rem;
+		margin: 0.5rem 0;
+		background: var(--bg-elev);
+		border: 1px solid var(--accent);
+		border-radius: 8px;
+		z-index: 5;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	}
+	.bulk-count {
+		font-size: 0.85rem;
+		color: var(--accent);
+		font-weight: 500;
+		margin-right: 0.5rem;
+	}
+	.bulk-act {
+		font: inherit;
+		font-size: 0.82rem;
+		padding: 0.3rem 0.7rem;
+		border: 1px solid var(--rule);
+		background: transparent;
+		color: var(--fg-soft);
+		border-radius: 6px;
+		cursor: pointer;
+	}
+	.bulk-act:hover { color: var(--fg); border-color: var(--accent); }
+	.bulk-act.danger:hover { color: #fb7185; border-color: #fb7185; }
+
+	th.check, td.check { width: 1.5rem; padding-left: 0.5rem; padding-right: 0; }
+	td.check input, th.check input { accent-color: var(--accent); cursor: pointer; }
+	tr.row-selected td { background: rgba(165, 180, 252, 0.08); }
 </style>

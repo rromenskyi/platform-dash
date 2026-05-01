@@ -7,6 +7,7 @@
 	import type { SerializableNode } from '$lib/resource';
 	import Toasts from '$lib/Toasts.svelte';
 	import SavedViews from '$lib/SavedViews.svelte';
+	import Shortcuts from '$lib/Shortcuts.svelte';
 	import { closeAll as closeAllLive } from '$lib/live-registry.svelte';
 
 	// Drop every active Live SSE before any client-side navigation.
@@ -198,6 +199,10 @@
 </div>
 
 <Toasts />
+
+{#if session?.user && canRead}
+	<Shortcuts {defaultCluster} />
+{/if}
 
 <style>
 	.topbar {
