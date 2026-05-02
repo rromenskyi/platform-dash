@@ -211,15 +211,25 @@ async function refresh(): Promise<void> {
 
 export async function ensureFresh(): Promise<void> {
 	const age = Date.now() - lastRefresh;
-	// First call (lastRefresh=0) always refreshes; later calls within
-	// the TTL window short-circuit. Concurrent callers share the same
-	// in-flight promise to avoid a thundering-herd CM read.
 	if (lastRefresh > 0 && age < TTL_MS) return;
 	if (inFlight) return inFlight;
 	inFlight = refresh().finally(() => {
 		inFlight = null;
 	});
 	return inFlight;
+}
+
+// Stale-while-revalidate variant: never blocks the caller. Layout
+// code uses this so a slow apiserver / missing CM doesn't hang every
+// nav. First nav after pod restart sees an empty registry; the next
+// within 30s sees the populated cache.
+export function kickFresh(): void {
+	const age = Date.now() - lastRefresh;
+	if (lastRefresh > 0 && age < TTL_MS) return;
+	if (inFlight) return;
+	inFlight = refresh().finally(() => {
+		inFlight = null;
+	});
 }
 
 export function listTargets(): DbTarget[] {

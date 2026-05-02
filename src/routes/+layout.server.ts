@@ -3,7 +3,7 @@ import { canRead, canWrite } from '$lib/authz';
 import { defaultCluster, listClusters } from '$lib/clusters.server';
 import { materialize } from '$lib/resource';
 import { buildAllTrees } from '$lib/resource-tree-k8s.server';
-import { ensureFresh as ensureDbTargetsFresh } from '$lib/db-targets.server';
+import { kickFresh as kickDbTargetsFresh } from '$lib/db-targets.server';
 import { snapshot as k8sMetricsSnapshot } from '$lib/k8s-metrics.server';
 import { incidentSummary } from '$lib/incident-summary.server';
 
@@ -30,7 +30,9 @@ export const load: LayoutServerLoad = async (event) => {
 	// CM on first paint.
 	let tree: Awaited<ReturnType<typeof materialize>> = [];
 	if (reader) {
-		await ensureDbTargetsFresh();
+		// Background refresh — never await. Slow CM/Secret reads
+		// would otherwise block every nav.
+		kickDbTargetsFresh();
 		tree = await materialize(buildAllTrees());
 	}
 	// Lightweight snapshot for the topbar status pill — only counts +

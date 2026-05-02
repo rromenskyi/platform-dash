@@ -1,7 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { canWrite } from '$lib/authz';
-import { isKnownCluster } from '$lib/clusters.server';
 import { record } from '$lib/audit.server';
 
 // Server-side HTTP tester. Fetches arbitrary URLs (http/https only)
@@ -11,21 +10,21 @@ import { record } from '$lib/audit.server';
 // services from within the cluster, and debugging "does this token
 // work?" without leaving the dash.
 //
-// Auth: gated on canWrite — request bodies and headers can carry
-// secrets the operator should not casually share with sre. We log
-// the URL + method + status to audit but DO NOT log headers or body
-// (they often contain Bearer tokens, basic auth, etc).
+// Cluster-agnostic — moved out of /k8s/[cluster]/api/ingress-test
+// since the tool doesn't care which cluster you're "in". Gate is on
+// global `canWrite(session)` (no cluster arg) so cluster-scoped
+// `cluster_<x>_admin` roles can't open it. Audit logs URL + method
+// + final status; headers and body are NEVER logged (Bearer tokens,
+// basic auth, etc).
 
 const TIMEOUT_MS = 10_000;
 const ALLOWED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']);
-const SNIPPET_CAP = 64_000; // ~64 KB — enough to see the actual response, not enough to be a data exfiltration channel
+const SNIPPET_CAP = 64_000;
 
-export const POST: RequestHandler = async ({ params, request, locals }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
 	const session = await locals.auth();
-	const { cluster } = params;
-	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
-	if (!canWrite(session, cluster)) {
-		throw error(403, 'platform_admin or cluster_<name>_admin role required');
+	if (!canWrite(session)) {
+		throw error(403, 'platform_admin role required');
 	}
 
 	const body = (await request.json()) as {
@@ -68,7 +67,10 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const auditBase = {
 		user: session?.user?.email ?? session?.user?.name ?? 'unknown',
 		roles: session?.roles ?? [],
-		cluster,
+		// HTTP tester is global; no cluster context. Audit ring's
+		// cluster field is 'tools' so the /admin/audit cluster filter
+		// shows it under a stable bucket.
+		cluster: 'tools',
 		action: 'http-test',
 		// URL + method only — headers and body intentionally omitted.
 		target: { kind: 'HTTP', url: parsed.toString(), method }
