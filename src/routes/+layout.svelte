@@ -124,7 +124,23 @@
 					API {h.p95}ms{#if h.errors > 0} · {h.errors}✕{/if}
 				</a>
 			{/if}
-			<a href="/incident" class="incident" class:active={pathname === '/incident'} title="Snapshot of failing pods, bad nodes, warnings">⚠ Incident</a>
+			{#if page.data.stuck}
+				{@const s = page.data.stuck as { totalFailing: number; totalBadNodes: number; perCluster: Array<{ cluster: string; failing: number; badNodes: number }> }}
+				{@const total = s.totalFailing + s.totalBadNodes}
+				<a
+					href="/incident"
+					class="incident"
+					class:active={pathname === '/incident'}
+					class:bad={total > 0}
+					title={total === 0
+						? 'No failing pods or bad nodes'
+						: s.perCluster.map((c) => `${c.cluster}: ${c.failing} failing · ${c.badNodes} bad nodes`).join('\n')}
+				>
+					⚠ Incident{#if total > 0} · {total}{/if}
+				</a>
+			{:else}
+				<a href="/incident" class="incident" class:active={pathname === '/incident'} title="Snapshot of failing pods, bad nodes, warnings">⚠ Incident</a>
+			{/if}
 		{/if}
 		<a href="/profile" class:active={pathname === '/profile' || pathname.startsWith('/profile/')}>Profile</a>
 		<a href="/settings" class:active={pathname === '/settings' || pathname.startsWith('/settings/')}>Settings</a>
@@ -200,6 +216,12 @@
 								<a class="tlink" class:active={isHrefActive('/admin/metrics')} href="/admin/metrics">k8s API metrics</a>
 							</div>
 						</li>
+						<li class="tnode">
+							<div class="trow">
+								<span class="caret-spacer"></span>
+								<a class="tlink" class:active={isHrefActive('/admin/audit')} href="/admin/audit">Audit log</a>
+							</div>
+						</li>
 					</ul>
 				</div>
 			{/if}
@@ -256,6 +278,12 @@
 	}
 	.topnav a.incident:hover { background: rgba(252, 211, 77, 0.08); }
 	.topnav a.incident.active { background: rgba(252, 211, 77, 0.15); }
+	.topnav a.incident.bad {
+		border-color: #fb7185;
+		color: #fb7185;
+		background: rgba(251, 113, 133, 0.08);
+	}
+	.topnav a.incident.bad:hover { background: rgba(251, 113, 133, 0.15); }
 
 	.topnav .apipill {
 		display: inline-flex;
