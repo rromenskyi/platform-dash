@@ -23,6 +23,27 @@
 
 	let { children } = $props();
 	let session = $derived(page.data.session);
+
+	// Theme: persisted in localStorage. Inline script in app.html sets
+	// data-theme on <html> before first paint to avoid a dark→light
+	// flash. Here we mirror that into a $state for the toggle button.
+	const THEME_KEY = 'platform-dash:theme';
+	let theme = $state<'dark' | 'light'>('dark');
+	$effect(() => {
+		if (typeof document === 'undefined') return;
+		const cur = document.documentElement.dataset.theme;
+		theme = cur === 'light' ? 'light' : 'dark';
+	});
+	function toggleTheme() {
+		theme = theme === 'dark' ? 'light' : 'dark';
+		if (typeof document === 'undefined') return;
+		document.documentElement.dataset.theme = theme;
+		try {
+			localStorage.setItem(THEME_KEY, theme);
+		} catch {
+			/* */
+		}
+	}
 	let pathname = $derived(page.url.pathname);
 	let canRead = $derived(!!page.data.canRead);
 	let canWrite = $derived(!!page.data.canWrite);
@@ -117,11 +138,18 @@
 				<a
 					class="apipill"
 					class:bad={h.errors > 0}
+					class:idle={h.count === 0}
 					href={canWrite ? '/admin/metrics' : undefined}
-					title="k8s API: {h.count} samples, {h.errors} errors, p95 {h.p95}ms"
+					title={h.count === 0
+						? 'k8s API: no samples in the ring yet — open a /k8s page to seed it'
+						: `k8s API: ${h.count} samples, ${h.errors} errors, p95 ${h.p95}ms`}
 				>
 					<span class="dot"></span>
-					API {h.p95}ms{#if h.errors > 0} · {h.errors}✕{/if}
+					{#if h.count === 0}
+						API —
+					{:else}
+						API {h.p95}ms{#if h.errors > 0} · {h.errors}✕{/if}
+					{/if}
 				</a>
 			{/if}
 			{#if page.data.stuck}
@@ -142,6 +170,12 @@
 				<a href="/incident" class="incident" class:active={pathname === '/incident'} title="Snapshot of failing pods, bad nodes, warnings">⚠ Incident</a>
 			{/if}
 		{/if}
+		<button
+			class="theme-toggle"
+			onclick={toggleTheme}
+			title="Toggle light / dark theme"
+			aria-label="Toggle theme"
+		>{theme === 'dark' ? '☾' : '☀'}</button>
 		<a href="/profile" class:active={pathname === '/profile' || pathname.startsWith('/profile/')}>Profile</a>
 		<a href="/settings" class:active={pathname === '/settings' || pathname.startsWith('/settings/')}>Settings</a>
 		{#if session?.user && canRead}
@@ -305,6 +339,21 @@
 		box-shadow: 0 0 4px #6ee7b7;
 	}
 	.topnav .apipill.bad { border-color: #fb7185; color: #fb7185; }
+	.topnav .apipill.idle { color: var(--muted); }
+	.topnav .apipill.idle .dot { background: var(--muted); box-shadow: none; }
+
+	.topnav .theme-toggle {
+		font: inherit;
+		font-size: 1rem;
+		padding: 0.15rem 0.5rem;
+		border: 1px solid var(--rule);
+		background: transparent;
+		color: var(--fg-soft);
+		border-radius: 4px;
+		cursor: pointer;
+		line-height: 1;
+	}
+	.topnav .theme-toggle:hover { color: var(--fg); border-color: var(--muted); opacity: 1; }
 	.topnav .apipill.bad .dot { background: #fb7185; box-shadow: 0 0 4px #fb7185; }
 	.topnav .apipill:hover { color: var(--fg); border-color: var(--muted); }
 
