@@ -4,13 +4,12 @@
 	import { onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { registerLive, unregisterLive } from '$lib/live-registry.svelte';
+	import { toast } from '$lib/toast.svelte';
 
 	let { data } = $props();
 
 	let refreshing = $state(false);
 	let showAnnotations = $state(false);
-	let actionMsg = $state<string | null>(null);
-	let actionErr = $state<string | null>(null);
 	let liveEvents = $state(false);
 	// Mirror data.events into a mutable list so live deltas can splice
 	// in place without overwriting the loader's snapshot. Re-seeded on
@@ -61,7 +60,7 @@
 			try {
 				const msg = JSON.parse(ev.data);
 				if (msg.type === 'error') {
-					actionErr = msg.message;
+					toast.show(msg.message, 'err');
 					return;
 				}
 				const e = msg.event;
@@ -103,8 +102,6 @@
 	}
 
 	async function postAction(action: string, body: object) {
-		actionMsg = null;
-		actionErr = null;
 		const res = await fetch(`/k8s/${data.cluster}/api/${action}`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
@@ -112,10 +109,10 @@
 		});
 		if (!res.ok) {
 			const text = await res.text();
-			actionErr = `${action} failed (${res.status}): ${text || res.statusText}`;
+			toast.show(`${action} failed (${res.status}): ${text || res.statusText}`, 'err');
 			return false;
 		}
-		actionMsg = `${action} ok`;
+		toast.show(`${action} ok`);
 		return true;
 	}
 
@@ -177,13 +174,6 @@
 		</button>
 	</div>
 </div>
-
-{#if actionErr}
-	<p class="banner err">{actionErr}</p>
-{/if}
-{#if actionMsg}
-	<p class="banner ok">{actionMsg}</p>
-{/if}
 
 <section class="stats">
 	<div class="stat">
@@ -639,15 +629,6 @@
 	}
 	.act:hover { color: var(--fg); border-color: var(--accent); }
 	.act.danger:hover { color: #fb7185; border-color: #fb7185; }
-
-	.banner {
-		padding: 0.55rem 0.85rem;
-		border-radius: 8px;
-		font-size: 0.85rem;
-		margin: 0.5rem 0;
-	}
-	.banner.err { background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; color: #fb7185; }
-	.banner.ok { background: rgba(110, 231, 183, 0.1); border: 1px solid #6ee7b7; color: #6ee7b7; }
 
 	.live-mini {
 		display: inline-flex;

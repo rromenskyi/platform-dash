@@ -6,6 +6,7 @@
 	import { page } from '$app/state';
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
 	import { registerLive, unregisterLive } from '$lib/live-registry.svelte';
+	import { toast } from '$lib/toast.svelte';
 
 	let { data } = $props();
 
@@ -14,8 +15,6 @@
 	let statusFilter = $state<string>('all');
 	let refreshing = $state(false);
 	let live = $state(false);
-	let actionMsg = $state<string | null>(null);
-	let actionErr = $state<string | null>(null);
 
 	// canWrite comes from the layout (per-cluster aware). Hide action
 	// buttons entirely for sre / no-role rather than greying — fewer
@@ -77,7 +76,7 @@
 					| { kind: 'error'; message: string }
 					| { kind: 'Pod' | 'Deployment' | 'StatefulSet'; type: string; item: WorkloadRow };
 				if ('message' in msg) {
-					actionErr = msg.message;
+					toast.show(msg.message, 'err');
 					return;
 				}
 				const key = `${msg.item.kind}|${msg.item.namespace}|${msg.item.name}`;
@@ -237,8 +236,6 @@
 	}
 
 	async function postAction(action: string, body: object) {
-		actionMsg = null;
-		actionErr = null;
 		try {
 			const res = await fetch(`/k8s/${data.cluster}/api/${action}`, {
 				method: 'POST',
@@ -247,14 +244,14 @@
 			});
 			if (!res.ok) {
 				const text = await res.text();
-				actionErr = `${action} failed (${res.status}): ${text || res.statusText}`;
+				toast.show(`${action} failed (${res.status}): ${text || res.statusText}`, 'err');
 				return false;
 			}
-			actionMsg = `${action} ok`;
+			toast.show(`${action} ok`);
 			if (!live) await invalidateAll();
 			return true;
 		} catch (err) {
-			actionErr = `${action} failed: ${err instanceof Error ? err.message : String(err)}`;
+			toast.show(`${action} failed: ${err instanceof Error ? err.message : String(err)}`, 'err');
 			return false;
 		}
 	}
@@ -309,8 +306,7 @@
 				else fail++;
 			})
 		);
-		actionMsg = `delete: ${ok} ok${fail ? ` · ${fail} failed` : ''}`;
-		if (fail > 0) actionErr = `${fail} pod delete(s) failed`;
+		toast.show(`delete: ${ok} ok${fail ? ` · ${fail} failed` : ''}`, fail > 0 ? 'err' : 'ok');
 		clearSelection();
 		if (!live) await invalidateAll();
 	}
@@ -331,8 +327,7 @@
 				else fail++;
 			})
 		);
-		actionMsg = `restart: ${ok} ok${fail ? ` · ${fail} failed` : ''}`;
-		if (fail > 0) actionErr = `${fail} restart(s) failed`;
+		toast.show(`restart: ${ok} ok${fail ? ` · ${fail} failed` : ''}`, fail > 0 ? 'err' : 'ok');
 		clearSelection();
 		if (!live) await invalidateAll();
 	}
@@ -347,7 +342,7 @@
 		if (next == null) return;
 		const n = Number(next);
 		if (!Number.isInteger(n) || n < 0) {
-			actionErr = 'replicas must be a non-negative integer';
+			toast.show('replicas must be a non-negative integer', 'err');
 			return;
 		}
 		postAction('scale', { kind: r.kind, namespace: r.namespace, name: r.name, replicas: n });
@@ -375,13 +370,6 @@
 {#if data.error}
 	<p class="error">Failed to list workloads: {data.error}</p>
 {/if}
-{#if actionErr}
-	<p class="error">{actionErr}</p>
-{/if}
-{#if actionMsg}
-	<p class="ok">{actionMsg}</p>
-{/if}
-
 <div class="controls">
 	<input class="search" type="search" bind:value={q} placeholder="Filter by name…" />
 	<div class="kinds">
@@ -696,16 +684,6 @@
 		font-size: 0.85rem;
 		margin: 0.5rem 0;
 	}
-	.ok {
-		padding: 0.6rem 0.9rem;
-		background: rgba(110, 231, 183, 0.1);
-		border: 1px solid #6ee7b7;
-		border-radius: 8px;
-		color: #6ee7b7;
-		font-size: 0.85rem;
-		margin: 0.5rem 0;
-	}
-
 	.act {
 		font: inherit;
 		font-size: 0.75rem;
