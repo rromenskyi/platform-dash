@@ -1,12 +1,54 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
-	import { invalidate, invalidateAll } from '$app/navigation';
+	import { invalidate, invalidateAll, goto } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { toast } from '$lib/toast.svelte';
+	import { createKbdNav } from '$lib/kbd-nav.svelte';
 
 	let { data } = $props();
 	const canWrite = $derived(!!page.data.canWrite);
+
+	// Flatten failing pods across clusters for kbd nav. j/k walks the
+	// global list newest-cluster-first; Enter drills into the focused
+	// pod's detail page; l opens its logs; x kills if admin.
+	const flatPods = $derived(
+		data.reports.flatMap((r) =>
+			r.failingPods.map((p) => ({ cluster: r.cluster, namespace: p.namespace, name: p.name }))
+		)
+	);
+	const kbd = createKbdNav({
+		rowCount: () => flatPods.length,
+		onEnter: (i) => {
+			const p = flatPods[i];
+			if (p) goto(`/k8s/${p.cluster}/pod/${p.namespace}/${p.name}`);
+		}
+	});
+	$effect(() => kbd.attach());
+
+	function onLogsKey(e: KeyboardEvent) {
+		if (e.metaKey || e.ctrlKey || e.altKey) return;
+		const t = e.target;
+		if (
+			t instanceof HTMLInputElement ||
+			t instanceof HTMLTextAreaElement ||
+			t instanceof HTMLSelectElement
+		) return;
+		const idx = kbd.focusedIdx;
+		if (idx < 0 || idx >= flatPods.length) return;
+		const p = flatPods[idx];
+		if (e.key === 'l') {
+			goto(`/k8s/${p.cluster}/pod/${p.namespace}/${p.name}/logs`);
+			e.preventDefault();
+		} else if (e.key === 'x' && canWrite) {
+			killPod(p.cluster, p.namespace, p.name);
+			e.preventDefault();
+		}
+	}
+	$effect(() => {
+		window.addEventListener('keydown', onLogsKey);
+		return () => window.removeEventListener('keydown', onLogsKey);
+	});
 
 	// Per-row in-flight set so the operator's Nth click on the same
 	// row doesn't fire N concurrent kicks. Keyed by `${cluster}|${ns}|${name}`.
@@ -141,7 +183,8 @@
 				</thead>
 				<tbody>
 					{#each r.failingPods as p}
-						<tr>
+						{@const flatIdx = flatPods.findIndex((x) => x.cluster === r.cluster && x.namespace === p.namespace && x.name === p.name)}
+						<tr class:row-focused={flatIdx === kbd.focusedIdx}>
 							<td>{p.namespace}</td>
 							<td class="mono">
 								<a href="/k8s/{r.cluster}/pod/{p.namespace}/{p.name}">{p.name}</a>
@@ -305,4 +348,5 @@
 	}
 	.chip-act.danger:hover:not(:disabled) { color: #fb7185; border-color: #fb7185; }
 	.chip-act:disabled { cursor: wait; opacity: 0.5; }
+	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
 </style>

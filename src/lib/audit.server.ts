@@ -53,6 +53,30 @@ export function auditSnapshot(): AuditRecord[] {
 	return out;
 }
 
+// Filter the ring to entries that touched a specific resource. Used
+// by detail pages (e.g. pod) to render "recent actions on this
+// resource". Match is strict on kind+namespace+name — we don't try
+// to track resources across rename / recreation cycles.
+export function auditScopedTo(opts: {
+	cluster?: string;
+	kind?: string;
+	namespace?: string;
+	name?: string;
+	limit?: number;
+}): AuditRecord[] {
+	const limit = opts.limit ?? 50;
+	const out: AuditRecord[] = [];
+	for (const r of auditSnapshot()) {
+		if (opts.cluster && r.cluster !== opts.cluster) continue;
+		if (opts.kind && r.target?.kind !== opts.kind) continue;
+		if (opts.namespace && r.target?.namespace !== opts.namespace) continue;
+		if (opts.name && r.target?.name !== opts.name) continue;
+		out.push(r);
+		if (out.length >= limit) break;
+	}
+	return out;
+}
+
 // Wrap an async write op so callers don't have to manually time +
 // branch on success/failure. Throws whatever the op throws after
 // logging — the endpoint handler still owns the response shape.

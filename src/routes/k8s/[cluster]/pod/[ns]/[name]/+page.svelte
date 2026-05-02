@@ -431,6 +431,39 @@
 	{/if}
 </section>
 
+{#if data.scopedAudit.length > 0}
+	<section class="card">
+		<h2>
+			Recent actions
+			<span class="muted small">(audit ring; resets on dash restart)</span>
+		</h2>
+		<table>
+			<thead>
+				<tr>
+					<th>When</th>
+					<th>User</th>
+					<th>Action</th>
+					<th>Outcome</th>
+					<th class="num">ms</th>
+					<th>Message</th>
+				</tr>
+			</thead>
+			<tbody>
+				{#each data.scopedAudit as a}
+					<tr>
+						<td class="ts">{age(a.ts)}</td>
+						<td class="mono">{a.user}</td>
+						<td class="mono">{a.action}</td>
+						<td><span class="outcome outcome-{a.outcome}">{a.outcome}</span></td>
+						<td class="num">{a.durationMs ?? ''}</td>
+						<td class="msg">{a.message ?? ''}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</section>
+{/if}
+
 <section class="card">
 	<h2>
 		Labels
@@ -773,4 +806,14 @@
 		font-size: 0.85em;
 		color: var(--fg);
 	}
+
+	.outcome {
+		display: inline-block; padding: 0.05rem 0.45rem; border-radius: 3px;
+		font-family: var(--font-mono); font-size: 0.78em;
+		border: 1px solid var(--rule); color: var(--fg-soft);
+	}
+	.outcome-ok { color: #6ee7b7; border-color: rgba(110, 231, 183, 0.4); }
+	.outcome-denied { color: #fcd34d; border-color: rgba(252, 211, 77, 0.4); }
+	.outcome-error { color: #fb7185; border-color: rgba(251, 113, 133, 0.4); }
+	td.ts { color: var(--muted); white-space: nowrap; font-family: var(--font-mono); font-size: 0.85em; }
 </style>

@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { auditScopedTo } from '$lib/audit.server';
 
 export type ContainerUsage = {
 	cpu?: string;
@@ -167,6 +168,13 @@ export const load: PageServerLoad = async (event) => {
 		eventsError = err instanceof Error ? err.message : String(err);
 	}
 
+	// Pod-scoped audit: last 20 write actions hitting this pod, owning
+	// Deployment/StatefulSet, or owning ReplicaSet. The detail page
+	// renders these next to the events log so the operator can answer
+	// "did someone restart this five minutes ago?" without flipping
+	// to /admin/audit.
+	const scopedAudit = auditScopedTo({ cluster, namespace: ns, name, limit: 20 });
+
 	return {
 		cluster,
 		pod: {
@@ -192,6 +200,7 @@ export const load: PageServerLoad = async (event) => {
 		conditions,
 		events,
 		eventsError,
-		metricsAvailable
+		metricsAvailable,
+		scopedAudit
 	};
 };
