@@ -2,6 +2,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { stringify as toYaml } from 'yaml';
 	import { page } from '$app/state';
+	import { toast } from '$lib/toast.svelte';
 
 	let { data } = $props();
 
@@ -12,8 +13,6 @@
 	let editing = $state(false);
 	let editBuffer = $state('');
 	let saving = $state(false);
-	let actionMsg = $state<string | null>(null);
-	let actionErr = $state<string | null>(null);
 
 	const canWrite = $derived(!!page.data.canWrite);
 
@@ -48,8 +47,6 @@
 		// stays in the body so the API rejects concurrent edits.
 		editBuffer = body;
 		editing = true;
-		actionMsg = null;
-		actionErr = null;
 	}
 	function cancelEdit() {
 		editing = false;
@@ -58,8 +55,6 @@
 	async function saveEdit() {
 		if (saving) return;
 		saving = true;
-		actionMsg = null;
-		actionErr = null;
 		try {
 			const res = await fetch(`/k8s/${data.cluster}/api/crd-replace`, {
 				method: 'POST',
@@ -73,14 +68,14 @@
 			});
 			if (!res.ok) {
 				const text = await res.text();
-				actionErr = `replace failed (${res.status}): ${text || res.statusText}`;
+				toast.show(`replace failed (${res.status}): ${text || res.statusText}`, 'err');
 				return;
 			}
-			actionMsg = 'saved';
+			toast.show('saved');
 			editing = false;
 			await invalidateAll();
 		} catch (err) {
-			actionErr = `replace failed: ${err instanceof Error ? err.message : String(err)}`;
+			toast.show(`replace failed: ${err instanceof Error ? err.message : String(err)}`, 'err');
 		} finally {
 			saving = false;
 		}
@@ -88,8 +83,6 @@
 	async function deleteInstance() {
 		if (!confirm(`Delete ${data.crd.kind} ${data.instance.namespace ? data.instance.namespace + '/' : ''}${data.instance.name}?`))
 			return;
-		actionMsg = null;
-		actionErr = null;
 		try {
 			const res = await fetch(`/k8s/${data.cluster}/api/crd-delete`, {
 				method: 'POST',
@@ -102,12 +95,12 @@
 			});
 			if (!res.ok) {
 				const text = await res.text();
-				actionErr = `delete failed (${res.status}): ${text || res.statusText}`;
+				toast.show(`delete failed (${res.status}): ${text || res.statusText}`, 'err');
 				return;
 			}
 			await goto(`/k8s/${data.cluster}/crds/${data.crd.name}`);
 		} catch (err) {
-			actionErr = `delete failed: ${err instanceof Error ? err.message : String(err)}`;
+			toast.show(`delete failed: ${err instanceof Error ? err.message : String(err)}`, 'err');
 		}
 	}
 </script>
@@ -149,13 +142,6 @@
 		{/if}
 	</div>
 </div>
-
-{#if actionErr}
-	<p class="error">{actionErr}</p>
-{/if}
-{#if actionMsg}
-	<p class="ok">{actionMsg}</p>
-{/if}
 
 {#if data.fetchError}
 	<p class="error">Failed to fetch object: {data.fetchError}</p>
@@ -258,15 +244,6 @@
 		border: 1px solid #fb7185;
 		border-radius: 8px;
 		color: #fb7185;
-	}
-	.ok {
-		padding: 0.55rem 0.85rem;
-		background: rgba(110, 231, 183, 0.1);
-		border: 1px solid #6ee7b7;
-		border-radius: 8px;
-		color: #6ee7b7;
-		font-size: 0.85rem;
-		margin: 0.5rem 0;
 	}
 	.ghost.danger:hover { color: #fb7185; border-color: #fb7185; }
 
