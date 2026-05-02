@@ -3,6 +3,7 @@
 	import { stringify as toYaml } from 'yaml';
 	import { page } from '$app/state';
 	import { toast } from '$lib/toast.svelte';
+	import { lineDiff, diffStats } from '$lib/line-diff';
 
 	let { data } = $props();
 
@@ -13,12 +14,22 @@
 	let editing = $state(false);
 	let editBuffer = $state('');
 	let saving = $state(false);
+	let showDiff = $state(false);
 
 	const canWrite = $derived(!!page.data.canWrite);
 
 	const yaml = $derived(data.object ? toYaml(data.object, { sortMapEntries: false }) : '');
 	const json = $derived(data.object ? JSON.stringify(data.object, null, 2) : '');
 	const body = $derived(format === 'yaml' ? yaml : json);
+
+	// Diff vs. the original object the page was loaded with. Computed
+	// only when the diff panel is open so editing typing latency stays
+	// snappy on long objects.
+	const diffOps = $derived.by(() => {
+		if (!editing || !showDiff) return [];
+		return lineDiff(body, editBuffer);
+	});
+	const diffSummary = $derived(diffStats(diffOps));
 
 	async function refresh() {
 		if (refreshing) return;
@@ -136,6 +147,9 @@
 				<button class="ghost" onclick={startEdit} disabled={!body}>edit</button>
 				<button class="ghost danger" onclick={deleteInstance} disabled={!body}>delete</button>
 			{:else}
+				<button class="ghost" onclick={() => (showDiff = !showDiff)} disabled={saving}>
+					{showDiff ? 'hide diff' : 'show diff'}
+				</button>
 				<button class="ghost" onclick={saveEdit} disabled={saving}>{saving ? 'saving…' : 'save'}</button>
 				<button class="ghost" onclick={cancelEdit} disabled={saving}>cancel</button>
 			{/if}
@@ -148,6 +162,14 @@
 {:else if editing}
 	<textarea class="editor" bind:value={editBuffer} spellcheck="false"></textarea>
 	<p class="muted small">YAML or JSON accepted. metadata.resourceVersion is preserved — concurrent edits get a 409.</p>
+	{#if showDiff}
+		<div class="diff-head">
+			<span class="diff-stat add">+{diffSummary.added}</span>
+			<span class="diff-stat del">−{diffSummary.removed}</span>
+			<span class="muted small">vs. loaded {format.toUpperCase()}</span>
+		</div>
+		<pre class="diff">{#each diffOps as op}<span class="op op-{op.kind}">{op.kind === 'add' ? '+' : op.kind === 'del' ? '-' : ' '} {op.line}</span>{/each}</pre>
+	{/if}
 {:else if body}
 	<pre class="yaml">{body}</pre>
 {:else}
@@ -264,4 +286,40 @@
 		tab-size: 2;
 	}
 	.editor:focus { outline: none; border-color: var(--accent); }
+
+	.diff-head {
+		display: inline-flex;
+		gap: 0.6rem;
+		align-items: center;
+		margin: 1rem 0 0.4rem;
+	}
+	.diff-stat {
+		font-family: var(--font-mono);
+		font-size: 0.78rem;
+		padding: 0.05rem 0.4rem;
+		border-radius: 3px;
+		border: 1px solid var(--rule);
+	}
+	.diff-stat.add { color: #6ee7b7; border-color: rgba(110, 231, 183, 0.4); }
+	.diff-stat.del { color: #fb7185; border-color: rgba(251, 113, 133, 0.4); }
+	.diff {
+		margin: 0;
+		padding: 0.6rem 0.8rem;
+		background: #0a0c10;
+		border-radius: 6px;
+		font-family: var(--font-mono);
+		font-size: 0.78rem;
+		line-height: 1.45;
+		overflow: auto;
+		max-height: 480px;
+		white-space: pre;
+		tab-size: 2;
+	}
+	.diff .op {
+		display: block;
+		padding: 0 0.3rem;
+	}
+	.diff .op-same { color: #94a3b8; }
+	.diff .op-add { color: #6ee7b7; background: rgba(110, 231, 183, 0.08); }
+	.diff .op-del { color: #fb7185; background: rgba(251, 113, 133, 0.08); }
 </style>

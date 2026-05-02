@@ -33,10 +33,22 @@ type Msg<T> =
 	| { type: 'DELETED'; item: T }
 	| { type: 'error'; message: string };
 
+// EventSource has only `CONNECTING` (0), `OPEN` (1), `CLOSED` (2).
+// We expose a slightly richer view to the UI:
+//   idle          — toggle off, never opened
+//   connecting    — opened, waiting on first frame
+//   open          — frame received OR `onopen` fired
+//   reconnecting  — error landed but readyState != CLOSED, browser
+//                   will retry by itself (default 3s in Chrome / FF)
+//   closed        — explicit close() OR readyState === CLOSED after
+//                   error (browser gave up)
+export type LiveStreamState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
+
 export class LiveList<T> {
 	rows = $state<T[]>([]);
 	error = $state<string | null>(null);
 	live = $state(false);
+	streamState = $state<LiveStreamState>('idle');
 
 	#map = new Map<string, T>();
 	#es: EventSource | null = null;
@@ -68,6 +80,7 @@ export class LiveList<T> {
 		this.#close();
 		this.reseed(this.rows);
 		this.error = null;
+		this.streamState = 'connecting';
 		const es = new EventSource(this.#init.url());
 		this.#es = es;
 		// Singleton policy via the registry — any other live stream
@@ -76,10 +89,15 @@ export class LiveList<T> {
 		registerLive(this.#regKey(), () => {
 			es.close();
 			if (this.#es === es) this.#es = null;
+			this.streamState = 'closed';
 			// Also flip the bound flag so the UI checkbox reflects reality.
 			this.live = false;
 		});
+		es.onopen = () => {
+			if (this.#es === es) this.streamState = 'open';
+		};
 		es.onmessage = (ev) => {
+			if (this.#es === es) this.streamState = 'open';
 			try {
 				const msg = JSON.parse(ev.data) as Msg<T>;
 				if (msg.type === 'error') {
@@ -94,6 +112,13 @@ export class LiveList<T> {
 				/* malformed event */
 			}
 		};
+		es.onerror = () => {
+			// readyState transitions: 0 (CONNECTING) during retry, 2
+			// (CLOSED) when the browser gives up. Treat the latter as
+			// terminal so the user knows to refresh / re-toggle.
+			if (this.#es !== es) return;
+			this.streamState = es.readyState === EventSource.CLOSED ? 'closed' : 'reconnecting';
+		};
 	}
 
 	#close() {
@@ -101,6 +126,7 @@ export class LiveList<T> {
 			unregisterLive(this.#regKey());
 			this.#es = null;
 		}
+		this.streamState = 'idle';
 	}
 
 	// Drive open/close from outside. Page wires this into a $effect

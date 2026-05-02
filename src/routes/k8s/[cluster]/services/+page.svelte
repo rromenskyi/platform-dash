@@ -6,6 +6,7 @@
 	import { createLiveList } from '$lib/live-list.svelte';
 	import type { SvcRow } from './+page.server';
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
+	import LiveDot from '$lib/LiveDot.svelte';
 
 	let { data } = $props();
 	let q = $state('');
@@ -40,7 +41,7 @@
 <div class="header">
 	<h1>Services</h1>
 	<div class="head-actions">
-		<label class="live-toggle"><input type="checkbox" bind:checked={live.live} /><span class="dot {live.live ? 'on' : 'off'}"></span> Live</label>
+		<label class="live-toggle"><input type="checkbox" bind:checked={live.live} /><LiveDot state={live.streamState} /> Live</label>
 		<button class="ghost" onclick={() => invalidateAll()} disabled={live.live}>↻ Refresh</button>
 	</div>
 </div>
@@ -82,9 +83,6 @@
 	.head-actions { display: inline-flex; gap: 0.5rem; align-items: center; }
 	.live-toggle { display: inline-flex; gap: 0.4rem; align-items: center; font-size: 0.85rem; color: var(--fg-soft); padding: 0.4rem 0.75rem; border: 1px solid var(--rule); border-radius: 6px; cursor: pointer; }
 	.live-toggle input { accent-color: var(--accent); }
-	.dot { width: 8px; height: 8px; border-radius: 50%; }
-	.dot.on { background: #6ee7b7; box-shadow: 0 0 6px #6ee7b7; }
-	.dot.off { background: var(--muted); }
 	.ghost { font: inherit; font-size: 0.85rem; padding: 0.4rem 0.8rem; border: 1px solid var(--rule); background: transparent; color: var(--fg-soft); border-radius: 6px; cursor: pointer; }
 	.ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--muted); }
 	.ghost:disabled { cursor: not-allowed; opacity: 0.5; }

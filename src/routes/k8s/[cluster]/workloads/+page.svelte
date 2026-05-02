@@ -7,6 +7,8 @@
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
 	import { registerLive, unregisterLive } from '$lib/live-registry.svelte';
 	import { toast } from '$lib/toast.svelte';
+	import LiveDot from '$lib/LiveDot.svelte';
+	import type { LiveStreamState } from '$lib/live-list.svelte';
 
 	let { data } = $props();
 
@@ -15,6 +17,7 @@
 	let statusFilter = $state<string>('all');
 	let refreshing = $state(false);
 	let live = $state(false);
+	let streamState = $state<LiveStreamState>('idle');
 
 	// canWrite comes from the layout (per-cluster aware). Hide action
 	// buttons entirely for sre / no-role rather than greying — fewer
@@ -57,6 +60,7 @@
 	function startLive() {
 		if (es) return;
 		seedLiveMap();
+		streamState = 'connecting';
 		const u = new URL(`/k8s/${data.cluster}/api/watch/workloads`, window.location.origin);
 		const ns = page.url.searchParams.get('ns') || '';
 		if (ns) u.searchParams.set('ns', ns);
@@ -68,9 +72,14 @@
 		registerLive(`workloads:${u.pathname}${u.search}`, () => {
 			src.close();
 			if (es === src) es = null;
+			streamState = 'closed';
 			live = false;
 		});
+		src.onopen = () => {
+			if (es === src) streamState = 'open';
+		};
 		src.onmessage = (ev) => {
+			if (es === src) streamState = 'open';
 			try {
 				const msg = JSON.parse(ev.data) as
 					| { kind: 'error'; message: string }
@@ -88,8 +97,8 @@
 			}
 		};
 		src.onerror = () => {
-			// Browser will auto-reconnect; surface a hint if connection
-			// stays down for a while in a follow-up enhancement.
+			if (es !== src) return;
+			streamState = src.readyState === EventSource.CLOSED ? 'closed' : 'reconnecting';
 		};
 	}
 
@@ -101,6 +110,7 @@
 			unregisterLive(`workloads:${u.pathname}${u.search}`);
 			es = null;
 		}
+		streamState = 'idle';
 	}
 
 	$effect(() => {
@@ -235,7 +245,7 @@
 		}
 	}
 
-	async function postAction(action: string, body: object) {
+	async function postAction(action: string, body: object, opts?: { skipInvalidate?: boolean }) {
 		try {
 			const res = await fetch(`/k8s/${data.cluster}/api/${action}`, {
 				method: 'POST',
@@ -248,12 +258,33 @@
 				return false;
 			}
 			toast.show(`${action} ok`);
-			if (!live) await invalidateAll();
+			// In live mode the watch SSE streams the change back. Out of
+			// live mode we either re-load (default) or trust the optimistic
+			// splice the caller already performed.
+			if (!live && !opts?.skipInvalidate) await invalidateAll();
 			return true;
 		} catch (err) {
 			toast.show(`${action} failed: ${err instanceof Error ? err.message : String(err)}`, 'err');
 			return false;
 		}
+	}
+
+	// Optimistic splice: drop a row from localRows / liveRowMap before
+	// the API round-trip lands so the table reflects the action without
+	// a full re-loader flash. Returns the original row so callers can
+	// restore it on failure.
+	function spliceOut(r: WorkloadRow): WorkloadRow | null {
+		const k = `${r.kind}|${r.namespace}|${r.name}`;
+		const had = localRows.find((x) => `${x.kind}|${x.namespace}|${x.name}` === k);
+		if (!had) return null;
+		liveRowMap.delete(k);
+		localRows = localRows.filter((x) => `${x.kind}|${x.namespace}|${x.name}` !== k);
+		return had;
+	}
+	function spliceIn(r: WorkloadRow) {
+		const k = `${r.kind}|${r.namespace}|${r.name}`;
+		liveRowMap.set(k, r);
+		localRows = [...localRows, r];
 	}
 
 	// ── Bulk selection ───────────────────────────────────────────────
@@ -293,22 +324,31 @@
 		if (bulkPods.length === 0) return;
 		if (!confirm(`Delete ${bulkPods.length} pod(s)?\n\nControllers will respawn pods that have one.`))
 			return;
+		// Optimistic: drop selected pods immediately, restore the ones
+		// whose API call comes back failing. Live mode will receive the
+		// canonical DELETED event regardless and idempotently confirm.
+		const snapshots = bulkPods.map((p) => ({ row: p, snap: spliceOut(p) }));
+		clearSelection();
 		let ok = 0;
 		let fail = 0;
 		await Promise.all(
-			bulkPods.map(async (p) => {
+			snapshots.map(async ({ row, snap }) => {
 				const res = await fetch(`/k8s/${data.cluster}/api/pod-delete`, {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ namespace: p.namespace, name: p.name })
+					body: JSON.stringify({ namespace: row.namespace, name: row.name })
 				});
 				if (res.ok) ok++;
-				else fail++;
+				else {
+					fail++;
+					if (snap) spliceIn(snap);
+				}
 			})
 		);
 		toast.show(`delete: ${ok} ok${fail ? ` · ${fail} failed` : ''}`, fail > 0 ? 'err' : 'ok');
-		clearSelection();
-		if (!live) await invalidateAll();
+		// No invalidateAll: the optimistic splice already removed the
+		// successful rows; controllers will respawn pods that have one
+		// and the next user-driven refresh (or live mode) picks them up.
 	}
 
 	async function bulkRestart() {
@@ -347,10 +387,16 @@
 		}
 		postAction('scale', { kind: r.kind, namespace: r.namespace, name: r.name, replicas: n });
 	}
-	function onDelete(r: WorkloadRow) {
+	async function onDelete(r: WorkloadRow) {
 		if (!confirm(`Delete pod ${r.namespace}/${r.name}?\n\nController will respawn it if it has one.`))
 			return;
-		postAction('pod-delete', { namespace: r.namespace, name: r.name });
+		const snap = spliceOut(r);
+		const ok = await postAction(
+			'pod-delete',
+			{ namespace: r.namespace, name: r.name },
+			{ skipInvalidate: true }
+		);
+		if (!ok && snap) spliceIn(snap);
 	}
 </script>
 
@@ -359,7 +405,7 @@
 	<div class="head-actions">
 		<label class="live">
 			<input type="checkbox" bind:checked={live} />
-			<span class="dot {live ? 'on' : 'off'}"></span> Live
+			<LiveDot state={streamState} /> Live
 		</label>
 		<button class="refresh" onclick={refresh} disabled={refreshing || live} title={live ? 'Disabled while Live' : 'Refresh'}>
 			<span class:spin={refreshing}>↻</span> Refresh
@@ -517,13 +563,6 @@
 		cursor: pointer;
 	}
 	.live input { accent-color: var(--accent); }
-	.dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-	}
-	.dot.on { background: #6ee7b7; box-shadow: 0 0 6px #6ee7b7; }
-	.dot.off { background: var(--muted); }
 
 	.refresh {
 		font: inherit;
