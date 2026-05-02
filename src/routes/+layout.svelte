@@ -197,6 +197,12 @@
 </header>
 
 {#snippet treeNode(n: SerializableNode, depth: number)}
+	{@const meta = (n.meta ?? {}) as { family?: string; kind?: string }}
+	{@const isClusterRoot = meta.family === 'k8s' && meta.kind === 'Cluster'}
+	{@const stuckRow = isClusterRoot && page.data.stuck
+		? (page.data.stuck as { perCluster: Array<{ cluster: string; failing: number; badNodes: number; reachable: boolean }> }).perCluster.find((c) => c.cluster === n.label)
+		: null}
+	{@const stuckTotal = stuckRow ? stuckRow.failing + stuckRow.badNodes : 0}
 	<li class="tnode" style="--depth: {depth}">
 		<div class="trow">
 			{#if n.children.length > 0}
@@ -210,6 +216,13 @@
 				<a class="tlink" class:active={isHrefSelfActive(n.href, allHrefs)} href={withNs(n.href)}>
 					{n.label}
 					{#if n.hint}<span class="hint">{n.hint}</span>{/if}
+					{#if isClusterRoot && stuckRow && !stuckRow.reachable}
+						<span class="health unreachable" title="Cluster unreachable">●</span>
+					{:else if isClusterRoot && stuckTotal > 0}
+						<span class="health bad" title="{stuckRow!.failing} failing pod{stuckRow!.failing === 1 ? '' : 's'}, {stuckRow!.badNodes} bad node{stuckRow!.badNodes === 1 ? '' : 's'}">{stuckTotal}</span>
+					{:else if isClusterRoot && stuckRow}
+						<span class="health ok" title="Cluster healthy"></span>
+					{/if}
 				</a>
 			{:else}
 				<button class="tlink as-button" onclick={() => toggle(n)}>
@@ -463,6 +476,33 @@
 		color: var(--muted);
 		font-family: var(--font-mono);
 		margin-left: 0.4rem;
+	}
+
+	.health {
+		margin-left: auto;
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		padding: 0 0.35rem;
+		border-radius: 8px;
+		line-height: 1;
+	}
+	.health.ok {
+		width: 6px;
+		height: 6px;
+		padding: 0;
+		background: #6ee7b7;
+		box-shadow: 0 0 4px #6ee7b7;
+	}
+	.health.bad {
+		background: #fb7185;
+		color: #1c1917;
+		font-weight: 600;
+		min-width: 1.2rem;
+		text-align: center;
+	}
+	.health.unreachable {
+		color: #fb7185;
+		font-size: 0.85rem;
 	}
 
 	.content {
