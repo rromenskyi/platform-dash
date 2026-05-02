@@ -8,6 +8,7 @@
 	import LiveDot from '$lib/LiveDot.svelte';
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
 	import Highlight from '$lib/Highlight.svelte';
+	import { rowClick } from '$lib/row-click';
 
 	let { data } = $props();
 
@@ -76,7 +77,7 @@
 	</thead>
 	<tbody>
 		{#each filtered as n, i}
-			<tr class:row-focused={i === kbd.focusedIdx}>
+			<tr class:row-focused={i === kbd.focusedIdx} class="clickable" onclick={rowClick(`/k8s/${data.cluster}/workloads?ns=${encodeURIComponent(n.name)}`)}>
 				<td class="mono"><a href="/k8s/{data.cluster}/workloads?ns={encodeURIComponent(n.name)}"><Highlight text={n.name} {q} /></a></td>
 				<td><span class="phase phase-{n.phase.toLowerCase()}">{n.phase}</span></td>
 				<td class="labels">
@@ -154,4 +155,6 @@
 
 	.error { padding: 0.75rem 1rem; background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; border-radius: 8px; color: #fb7185; }
 	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
+	tr.clickable { cursor: pointer; }
+	tr.clickable:hover td { background: var(--bg-elev); }
 </style>

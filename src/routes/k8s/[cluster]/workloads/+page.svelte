@@ -13,6 +13,7 @@
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
 	import Highlight from '$lib/Highlight.svelte';
 	import { confirm as confirmDialog } from '$lib/confirm.svelte';
+	import { rowClick } from '$lib/row-click';
 
 	let { data } = $props();
 
@@ -590,7 +591,12 @@
 	</thead>
 	<tbody>
 		{#each filtered as r, i}
-			<tr class:row-selected={isSelected(r)} class:row-focused={i === kbd.focusedIdx}>
+			<tr
+				class:row-selected={isSelected(r)}
+				class:row-focused={i === kbd.focusedIdx}
+				class:clickable={r.kind === 'Pod'}
+				onclick={r.kind === 'Pod' ? rowClick(`/k8s/${data.cluster}/pod/${r.namespace}/${r.name}`) : undefined}
+			>
 				{#if canWrite}
 					<td class="check">
 						<input
@@ -919,4 +925,5 @@
 	tr.row-selected td { background: rgba(165, 180, 252, 0.08); }
 	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
 	tr.row-focused.row-selected td { background: rgba(165, 180, 252, 0.14); }
+	tr.clickable { cursor: pointer; }
 </style>
