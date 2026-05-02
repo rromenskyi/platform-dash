@@ -1,12 +1,36 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
 	import { invalidateAll } from '$app/navigation';
+	import { onMount, onDestroy } from 'svelte';
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
+	import { nextRunAt, fmtCountdown } from '$lib/cron-next';
+	import Highlight from '$lib/Highlight.svelte';
+
 	let { data } = $props();
 	let q = $state('');
+	let now = $state(Date.now());
+
+	// Tick once a second to keep the countdowns moving. setInterval is
+	// fine here — the page is a single ~50-row table and one assignment
+	// per tick is invisible CPU.
+	let timer: ReturnType<typeof setInterval> | null = null;
+	onMount(() => {
+		timer = setInterval(() => (now = Date.now()), 1_000);
+	});
+	onDestroy(() => {
+		if (timer) clearInterval(timer);
+	});
+
 	const filtered = $derived(
 		data.rows.filter((r) => !q || `${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase()))
 	);
+
+	function nextRun(schedule: string, suspended: boolean): string {
+		if (suspended) return 'suspended';
+		const next = nextRunAt(schedule, now);
+		if (!next) return '?';
+		return fmtCountdown(next - now);
+	}
 </script>
 
 <div class="header">
@@ -23,13 +47,16 @@
 <p class="muted small">{filtered.length} of {data.rows.length}</p>
 
 <table>
-	<thead><tr><th>Namespace</th><th>Name</th><th>Schedule</th><th>Suspended</th><th class="num">Active</th><th>Last run</th><th>Age</th><th>Actions</th></tr></thead>
+	<thead><tr><th>Namespace</th><th>Name</th><th>Schedule</th><th>Next run</th><th>Suspended</th><th class="num">Active</th><th>Last run</th><th>Age</th><th>Actions</th></tr></thead>
 	<tbody>
 		{#each filtered as r}
 			<tr class:suspended={r.suspend}>
-				<td>{r.namespace}</td>
-				<td class="mono">{r.name}</td>
+				<td><Highlight text={r.namespace} {q} /></td>
+				<td class="mono"><Highlight text={r.name} {q} /></td>
 				<td class="mono small">{r.schedule}</td>
+				<td class="mono small countdown" class:soon={!r.suspend && (() => { const n = nextRunAt(r.schedule, now); return n != null && n - now < 60_000; })()}>
+					{nextRun(r.schedule, r.suspend)}
+				</td>
 				<td>{r.suspend ? 'yes' : ''}</td>
 				<td class="num">{r.active || ''}</td>
 				<td>{r.lastSchedule ? age(r.lastSchedule) : '—'}</td>
@@ -56,5 +83,7 @@
 	tr:hover td { background: var(--bg-elev); }
 	tr.suspended td { opacity: 0.55; }
 	td.mono { color: var(--fg); font-family: var(--font-mono); font-size: 0.85em; }
+	.countdown { color: var(--fg); }
+	.countdown.soon { color: #fcd34d; }
 	.error { padding: 0.75rem 1rem; background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; border-radius: 8px; color: #fb7185; }
 </style>

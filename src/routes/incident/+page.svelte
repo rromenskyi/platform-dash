@@ -92,6 +92,53 @@
 		podAction('pod-delete', cluster, ns, name, { namespace: ns, name });
 	}
 
+	// Bulk kill across selected failing pods. Set keys are flatPods
+	// indices so a re-render that reorders rows doesn't poison the
+	// selection — the underlying object identity is what we kill on.
+	let selected = $state<Set<string>>(new Set());
+	function rowId(p: { cluster: string; namespace: string; name: string }): string {
+		return `${p.cluster}|${p.namespace}|${p.name}`;
+	}
+	function isSelected(p: { cluster: string; namespace: string; name: string }): boolean {
+		return selected.has(rowId(p));
+	}
+	function toggleSelected(p: { cluster: string; namespace: string; name: string }) {
+		const k = rowId(p);
+		const next = new Set(selected);
+		if (next.has(k)) next.delete(k);
+		else next.add(k);
+		selected = next;
+	}
+	function selectAll() {
+		selected = new Set(flatPods.map(rowId));
+	}
+	function clearSelection() {
+		selected = new Set();
+	}
+	const selectedPods = $derived(flatPods.filter((p) => selected.has(rowId(p))));
+
+	async function bulkKill() {
+		if (selectedPods.length === 0) return;
+		if (!confirm(`Delete ${selectedPods.length} pod(s)?\n\nControllers will respawn pods that have one.`))
+			return;
+		let ok = 0;
+		let fail = 0;
+		await Promise.all(
+			selectedPods.map(async (p) => {
+				const res = await fetch(`/k8s/${p.cluster}/api/pod-delete`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ namespace: p.namespace, name: p.name })
+				});
+				if (res.ok) ok++;
+				else fail++;
+			})
+		);
+		toast.show(`bulk kill: ${ok} ok${fail ? ` · ${fail} failed` : ''}`, fail > 0 ? 'err' : 'ok');
+		clearSelection();
+		await invalidate(() => true);
+	}
+
 	const POLL_MS = 30_000;
 	let timer: ReturnType<typeof setInterval> | null = null;
 	let visible = $state(typeof document === 'undefined' ? true : !document.hidden);
@@ -141,6 +188,17 @@
 	<div class="card chip"><span class="k">Warning events</span><span class="v" class:warn={data.totals.events > 0}>{data.totals.events}</span></div>
 </section>
 
+{#if canWrite && (selected.size > 0 || flatPods.length > 0)}
+	<div class="bulk-bar">
+		<span class="bulk-count">{selected.size}/{flatPods.length} selected</span>
+		<button class="bulk-act" onclick={selectAll} disabled={selected.size === flatPods.length || flatPods.length === 0}>select all</button>
+		<button class="bulk-act" onclick={clearSelection} disabled={selected.size === 0}>clear</button>
+		{#if selected.size > 0}
+			<button class="bulk-act danger" onclick={bulkKill}>delete {selected.size} pod{selected.size === 1 ? '' : 's'}</button>
+		{/if}
+	</div>
+{/if}
+
 {#each data.reports as r}
 	<section class="cluster">
 		<header class="cluster-head">
@@ -179,12 +237,25 @@
 			<h3>Failing pods <span class="muted small">(top {r.failingPods.length})</span></h3>
 			<table>
 				<thead>
-					<tr><th>Namespace</th><th>Pod</th><th>Phase</th><th class="num">Restarts</th><th>Reason</th><th>Started</th><th class="actions-h">Actions</th></tr>
+					<tr>
+						{#if canWrite}<th class="check"></th>{/if}
+						<th>Namespace</th><th>Pod</th><th>Phase</th><th class="num">Restarts</th><th>Reason</th><th>Started</th><th class="actions-h">Actions</th>
+					</tr>
 				</thead>
 				<tbody>
 					{#each r.failingPods as p}
 						{@const flatIdx = flatPods.findIndex((x) => x.cluster === r.cluster && x.namespace === p.namespace && x.name === p.name)}
-						<tr class:row-focused={flatIdx === kbd.focusedIdx}>
+						{@const podRef = { cluster: r.cluster, namespace: p.namespace, name: p.name }}
+						<tr class:row-focused={flatIdx === kbd.focusedIdx} class:row-selected={isSelected(podRef)}>
+							{#if canWrite}
+								<td class="check">
+									<input
+										type="checkbox"
+										checked={isSelected(podRef)}
+										onchange={() => toggleSelected(podRef)}
+									/>
+								</td>
+							{/if}
 							<td>{p.namespace}</td>
 							<td class="mono">
 								<a href="/k8s/{r.cluster}/pod/{p.namespace}/{p.name}">{p.name}</a>
@@ -349,4 +420,21 @@
 	.chip-act.danger:hover:not(:disabled) { color: #fb7185; border-color: #fb7185; }
 	.chip-act:disabled { cursor: wait; opacity: 0.5; }
 	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
+	tr.row-selected td { background: rgba(165, 180, 252, 0.08); }
+	tr.row-focused.row-selected td { background: rgba(165, 180, 252, 0.14); }
+	td.check, th.check { width: 1.5rem; padding-right: 0; }
+	.bulk-bar {
+		display: inline-flex; gap: 0.4rem; align-items: center;
+		padding: 0.5rem 0.85rem; margin: 0.5rem 0 1rem;
+		background: var(--bg-elev); border: 1px solid var(--rule); border-radius: 8px;
+	}
+	.bulk-count { font-family: var(--font-mono); font-size: 0.8rem; color: var(--fg); }
+	.bulk-act {
+		font: inherit; font-size: 0.78rem; padding: 0.25rem 0.6rem;
+		border: 1px solid var(--rule); background: transparent; color: var(--fg-soft);
+		border-radius: 4px; cursor: pointer;
+	}
+	.bulk-act:hover:not(:disabled) { color: var(--fg); border-color: var(--accent); }
+	.bulk-act.danger:hover:not(:disabled) { color: #fb7185; border-color: #fb7185; }
+	.bulk-act:disabled { cursor: not-allowed; opacity: 0.5; }
 </style>
