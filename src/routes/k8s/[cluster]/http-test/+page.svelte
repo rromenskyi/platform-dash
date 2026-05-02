@@ -123,11 +123,17 @@
 		}
 	}
 
+	let copyFlash = $state(false);
+	let copyFlashTimer: ReturnType<typeof setTimeout> | null = null;
 	async function copySnippet() {
 		if (!result || !('snippet' in result) || !result.snippet) return;
 		try {
 			await navigator.clipboard.writeText(result.snippet);
-			toast.show('copied');
+			// Brief visual flash on the button so the operator sees
+			// "yes, that copied" without scanning the toast stack.
+			copyFlash = true;
+			if (copyFlashTimer) clearTimeout(copyFlashTimer);
+			copyFlashTimer = setTimeout(() => (copyFlash = false), 500);
 		} catch (err) {
 			toast.show(`copy failed: ${err instanceof Error ? err.message : String(err)}`, 'err');
 		}
@@ -224,7 +230,7 @@
 			{/if}
 			<span class="muted small">{result.ms} ms</span>
 			{#if 'snippet' in result && result.snippet}
-				<button class="ghost copy" onclick={copySnippet}>copy body</button>
+				<button class="ghost copy" class:flash={copyFlash} onclick={copySnippet}>{copyFlash ? '✓ copied' : 'copy body'}</button>
 			{/if}
 		</header>
 
@@ -334,7 +340,8 @@
 	}
 	.res h3 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 0.85rem 0 0.4rem; }
 	.rhead { display: flex; gap: 0.6rem; align-items: center; }
-	.copy { margin-left: auto; }
+	.copy { margin-left: auto; transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast); }
+	.copy.flash { color: #6ee7b7; border-color: #6ee7b7; background: rgba(110, 231, 183, 0.12); }
 	.status {
 		display: inline-block; padding: 0.15rem 0.55rem; border-radius: 4px;
 		font-family: var(--font-mono); font-size: 0.8rem;

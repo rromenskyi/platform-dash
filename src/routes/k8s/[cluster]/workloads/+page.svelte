@@ -526,9 +526,10 @@
 <p class="muted small">{filtered.length} of {localRows.length} resources</p>
 
 <p class="muted small sort-hint">
-	sort: <button class="sort-reset" onclick={() => { sortKey = 'chaos'; sortDir = 'desc'; }} class:active={sortKey === 'chaos'}>chaos</button>
-	{#if sortKey !== 'chaos'}· click any column header to re-sort{/if}
-	· press <kbd>?</kbd> for keyboard shortcuts
+	<span class="hint-item">sort: <button class="sort-reset" onclick={() => { sortKey = 'chaos'; sortDir = 'desc'; }} class:active={sortKey === 'chaos'}>chaos</button></span>
+	{#if sortKey !== 'chaos'}<span class="hint-sep">·</span><span class="hint-item">click any column header to re-sort</span>{/if}
+	<span class="hint-sep">·</span>
+	<span class="hint-item">press <kbd>?</kbd> for keyboard shortcuts</span>
 </p>
 
 {#if canWrite && selected.size > 0}
@@ -752,6 +753,10 @@
 	th.sortable:hover { color: var(--fg); }
 
 	.sort-hint {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: 0.78rem;
 		color: var(--muted);
 		margin: 0.5rem 0 0.5rem;
@@ -765,6 +770,7 @@
 		color: var(--fg-soft);
 		border-radius: 4px;
 		cursor: pointer;
+		vertical-align: baseline;
 	}
 	.sort-reset:hover { color: var(--fg); border-color: var(--muted); }
 	.sort-reset.active { color: var(--accent); border-color: var(--accent); }
@@ -778,6 +784,8 @@
 		color: var(--fg);
 		background: var(--bg-elev);
 	}
+	.hint-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+	.hint-sep { color: var(--muted); }
 	td {
 		padding: 0.55rem 0.75rem;
 		border-bottom: 1px solid var(--rule);
