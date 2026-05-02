@@ -9,6 +9,7 @@
 	import { toast } from '$lib/toast.svelte';
 	import LiveDot from '$lib/LiveDot.svelte';
 	import type { LiveStreamState } from '$lib/live-list.svelte';
+	import { goto } from '$app/navigation';
 
 	let { data } = $props();
 
@@ -129,6 +130,73 @@
 	});
 
 	onDestroy(stopLive);
+
+	// Keyboard nav. j/k move row focus; Enter drills in for Pods (the
+	// only kind with a detail page); x toggles bulk selection if the
+	// user has write; / focuses search; Esc clears selection / blurs.
+	// Skipped when the user is typing in an input — search box, prompt,
+	// etc. — so keystrokes go to the form.
+	let focusedIdx = $state(-1);
+	function onKey(e: KeyboardEvent) {
+		const t = e.target as HTMLElement | null;
+		if (
+			t instanceof HTMLInputElement ||
+			t instanceof HTMLTextAreaElement ||
+			t instanceof HTMLSelectElement ||
+			(t && t.isContentEditable)
+		) {
+			return;
+		}
+		if (e.metaKey || e.ctrlKey || e.altKey) return;
+		const max = filtered.length - 1;
+		switch (e.key) {
+			case 'j':
+				if (max < 0) return;
+				focusedIdx = focusedIdx < 0 ? 0 : Math.min(max, focusedIdx + 1);
+				e.preventDefault();
+				return;
+			case 'k':
+				if (max < 0) return;
+				focusedIdx = focusedIdx <= 0 ? 0 : focusedIdx - 1;
+				e.preventDefault();
+				return;
+			case 'Enter': {
+				const r = filtered[focusedIdx];
+				if (!r) return;
+				if (r.kind === 'Pod') {
+					goto(`/k8s/${data.cluster}/pod/${r.namespace}/${r.name}`);
+					e.preventDefault();
+				}
+				return;
+			}
+			case 'x': {
+				if (!canWrite) return;
+				const r = filtered[focusedIdx];
+				if (!r) return;
+				toggleSelected(r);
+				e.preventDefault();
+				return;
+			}
+			case 'Escape':
+				if (selected.size > 0) {
+					clearSelection();
+					e.preventDefault();
+				}
+				return;
+			case '/': {
+				const search = document.querySelector<HTMLInputElement>('input.search');
+				if (search) {
+					search.focus();
+					e.preventDefault();
+				}
+				return;
+			}
+		}
+	}
+	$effect(() => {
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	});
 
 	const distinctStatuses = $derived(
 		Array.from(new Set(localRows.map((r) => r.status))).sort()
@@ -445,6 +513,7 @@
 <p class="muted small sort-hint">
 	sort: <button class="sort-reset" onclick={() => { sortKey = 'chaos'; sortDir = 'desc'; }} class:active={sortKey === 'chaos'}>chaos</button>
 	{#if sortKey !== 'chaos'}· click any column header to re-sort{/if}
+	· keys: <kbd>j</kbd>/<kbd>k</kbd> nav · <kbd>↵</kbd> open pod{#if canWrite} · <kbd>x</kbd> toggle select{/if} · <kbd>/</kbd> search
 </p>
 
 {#if canWrite && selected.size > 0}
@@ -492,8 +561,8 @@
 		</tr>
 	</thead>
 	<tbody>
-		{#each filtered as r}
-			<tr class:row-selected={isSelected(r)}>
+		{#each filtered as r, i}
+			<tr class:row-selected={isSelected(r)} class:row-focused={i === focusedIdx}>
 				{#if canWrite}
 					<td class="check">
 						<input
@@ -678,6 +747,16 @@
 	}
 	.sort-reset:hover { color: var(--fg); border-color: var(--muted); }
 	.sort-reset.active { color: var(--accent); border-color: var(--accent); }
+	.sort-hint kbd {
+		font-family: var(--font-mono);
+		font-size: 0.72rem;
+		padding: 0.05rem 0.35rem;
+		border: 1px solid var(--rule);
+		border-bottom-width: 2px;
+		border-radius: 3px;
+		color: var(--fg);
+		background: var(--bg-elev);
+	}
 	td {
 		padding: 0.55rem 0.75rem;
 		border-bottom: 1px solid var(--rule);
@@ -773,4 +852,6 @@
 	th.check, td.check { width: 1.5rem; padding-left: 0.5rem; padding-right: 0; }
 	td.check input, th.check input { accent-color: var(--accent); cursor: pointer; }
 	tr.row-selected td { background: rgba(165, 180, 252, 0.08); }
+	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
+	tr.row-focused.row-selected td { background: rgba(165, 180, 252, 0.14); }
 </style>

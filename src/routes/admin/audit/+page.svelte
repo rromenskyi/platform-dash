@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
+	import { invalidate, invalidateAll } from '$app/navigation';
+	import { onMount, onDestroy } from 'svelte';
 
 	let { data } = $props();
 
@@ -7,6 +8,14 @@
 	let q = $state('');
 	let outcomeFilter = $state<'all' | 'ok' | 'denied' | 'error'>('all');
 	let clusterFilter = $state<string>('all');
+	let livetail = $state(true);
+
+	// Audit ring is in-memory and cheap — poll once every few seconds
+	// so the page doubles as a tail. `visible` pauses while the tab is
+	// hidden so we don't burn CPU when the operator alt-tabbed away.
+	const POLL_MS = 5_000;
+	let timer: ReturnType<typeof setInterval> | null = null;
+	let visible = $state(typeof document === 'undefined' ? true : !document.hidden);
 
 	async function refresh() {
 		if (refreshing) return;
@@ -17,6 +26,21 @@
 			refreshing = false;
 		}
 	}
+
+	onMount(() => {
+		timer = setInterval(() => {
+			if (livetail && visible) invalidate(() => true);
+		}, POLL_MS);
+		const onVis = () => {
+			visible = !document.hidden;
+			if (livetail && visible) invalidate(() => true);
+		};
+		document.addEventListener('visibilitychange', onVis);
+		return () => document.removeEventListener('visibilitychange', onVis);
+	});
+	onDestroy(() => {
+		if (timer) clearInterval(timer);
+	});
 
 	const clusters = $derived(
 		Array.from(new Set(data.events.map((e) => e.cluster))).sort()
@@ -50,14 +74,20 @@
 
 <div class="header">
 	<h1>Audit log</h1>
-	<button class="refresh" onclick={refresh} disabled={refreshing}>
-		<span class:spin={refreshing}>↻</span> Refresh
-	</button>
+	<div class="head-acts">
+		<label class="livetail">
+			<input type="checkbox" bind:checked={livetail} /> live tail (5s)
+		</label>
+		<button class="refresh" onclick={refresh} disabled={refreshing}>
+			<span class:spin={refreshing}>↻</span> Refresh
+		</button>
+	</div>
 </div>
 
 <p class="muted small">
 	Last {data.events.length} write actions (in-memory ring; resets on pod restart).
 	Loki / kubectl logs hold the durable stream.
+	{livetail && visible ? '· tailing' : livetail && !visible ? '· tail paused (tab hidden)' : ''}
 </p>
 
 <div class="controls">
@@ -114,6 +144,9 @@
 
 <style>
 	.header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+	.head-acts { display: inline-flex; gap: 0.6rem; align-items: center; }
+	.livetail { display: inline-flex; gap: 0.4rem; align-items: center; font-size: 0.8rem; color: var(--fg-soft); cursor: pointer; }
+	.livetail input { accent-color: var(--accent); }
 	.refresh {
 		font: inherit; font-size: 0.85rem; padding: 0.4rem 0.8rem;
 		border: 1px solid var(--rule); background: transparent; color: var(--fg-soft);
