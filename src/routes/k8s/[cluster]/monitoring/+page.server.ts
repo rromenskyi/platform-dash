@@ -13,7 +13,7 @@ export const load: PageServerLoad = async (event) => {
 	// Reuse the in-memory rings / cluster summary that other admin
 	// surfaces already populate. Cheap snapshots, no fresh k8s calls.
 	const apiRing = snapshot();
-	const stuck = await incidentSummary((c) => canRead(session, c)).catch(() => null);
+	const stuck = incidentSummary((c) => canRead(session, c));
 	const myStuck = stuck?.perCluster.find((c) => c.cluster === cluster) ?? null;
 
 	return {

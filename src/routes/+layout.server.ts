@@ -44,10 +44,11 @@ export const load: LayoutServerLoad = async (event) => {
 			}
 		: null;
 	// Stuck-state pill — failing pods + bad nodes per cluster the user
-	// can read. 30s server-side cache so layout loads stay cheap.
-	const stuck = reader
-		? await incidentSummary((c) => canRead(session, c)).catch(() => null)
-		: null;
+	// can read. Sync stale-while-revalidate: returns the cached
+	// snapshot (or null on cold start) immediately and kicks a
+	// background refresh when expired. Layout never blocks on a
+	// k8s call here, even if the apiserver is slow / unreachable.
+	const stuck = reader ? incidentSummary((c) => canRead(session, c)) : null;
 	return {
 		session,
 		canRead: reader,
