@@ -141,9 +141,35 @@ function mkWriter(ws, channel) {
 	};
 }
 
-const wss = new WebSocketServer({ noServer: true });
+// 1 MB cap on incoming WS frames. Terminal keystrokes are bytes,
+// pasted blocks rarely exceed a few KB; 1 MB leaves headroom for
+// "operator pasted a cert" without giving an attacker a 100 MB
+// memory amplification primitive (the `ws` library default).
+const wss = new WebSocketServer({ noServer: true, maxPayload: 1 * 1024 * 1024 });
+
+// Same-origin Origin check on the WS upgrade. SameSite=Lax cookies
+// already block cross-origin auth, but defence-in-depth — refuse
+// the upgrade if the Origin header is set and doesn't match the
+// request's Host. Missing Origin (curl, native ws clients) is
+// allowed since cookies still gate auth.
+function originAllowed(req) {
+	const origin = req.headers.origin;
+	if (!origin) return true;
+	try {
+		const o = new URL(origin);
+		const host = req.headers.host;
+		if (!host) return false;
+		return o.host === host;
+	} catch {
+		return false;
+	}
+}
 
 async function handleExecUpgrade(req, socket, head, params) {
+	if (!originAllowed(req)) {
+		socket.destroy();
+		return;
+	}
 	if (!clusters.find((c) => c.name === params.cluster)) {
 		socket.destroy();
 		return;
@@ -227,6 +253,12 @@ async function handleExecUpgrade(req, socket, head, params) {
 			ws.send(prefixed(ERR, Buffer.from(`exec failed: ${msg}`, 'utf8')));
 			ws.close();
 		} catch {}
+		// Tear down stdin explicitly — closeAll() bails when the ws
+		// hasn't fired its close event yet. Without this, repeated
+		// auth-failure connects leak PassThrough buffers.
+		try {
+			stdin.end();
+		} catch {}
 		return;
 	}
 
@@ -240,9 +272,26 @@ async function handleExecUpgrade(req, socket, head, params) {
 		if (prefix === STDIN) {
 			stdin.write(body);
 		} else if (prefix === RESIZE && upstream) {
+			// Validate JSON shape before forwarding to k8s — malformed
+			// frames otherwise close the upstream silently and the
+			// operator sees a vague "[exec ended]".
 			try {
+				const obj = JSON.parse(body.toString('utf8'));
+				if (
+					typeof obj?.Width !== 'number' ||
+					typeof obj?.Height !== 'number' ||
+					!Number.isFinite(obj.Width) ||
+					!Number.isFinite(obj.Height)
+				) {
+					ws.send(prefixed(ERR, Buffer.from('bad RESIZE frame', 'utf8')));
+					return;
+				}
 				upstream.send(Buffer.concat([Buffer.from([RESIZE]), body]));
-			} catch {}
+			} catch {
+				try {
+					ws.send(prefixed(ERR, Buffer.from('RESIZE frame is not JSON', 'utf8')));
+				} catch {}
+			}
 		}
 	});
 
