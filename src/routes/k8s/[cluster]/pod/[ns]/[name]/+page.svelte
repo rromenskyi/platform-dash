@@ -275,6 +275,7 @@
 	</div>
 	<div class="head-actions">
 		{#if canWrite}
+			<a class="act" href="/k8s/{data.cluster}/pod/{data.pod.namespace}/{data.pod.name}/exec" title="Open shell into a container in this pod">shell</a>
 			{#if ownerControllable}
 				<button class="act" onclick={onRestartOwner} title="Rollout restart owning {ownerControllable.kind}">
 					restart {ownerControllable.kind.toLowerCase()}

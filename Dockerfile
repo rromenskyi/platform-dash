@@ -18,6 +18,10 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/build ./build
+COPY start.js ./
 
 EXPOSE 3000
-CMD ["node", "build"]
+# start.js wraps adapter-node's bundled `handler` in an http.Server so
+# we can attach the /ws/exec/* WebSocket bridge for pod shells. Drop
+# back to `node build` if the shell surface needs to go away.
+CMD ["node", "start.js"]
