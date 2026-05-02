@@ -9,7 +9,13 @@
 	let q = $state('');
 	let outcomeFilter = $state<'all' | 'ok' | 'denied' | 'error'>('all');
 	let clusterFilter = $state<string>('all');
+	let rangeFilter = $state<'all' | '5m' | '1h' | '24h'>('all');
 	let livetail = $state(true);
+
+	// Tick `now` every few seconds so range filters slide forward
+	// without needing a manual refresh; the table reactivity catches
+	// up on the next $derived recompute.
+	let now = $state(Date.now());
 
 	// Audit ring is in-memory and cheap — poll once every few seconds
 	// so the page doubles as a tail. `visible` pauses while the tab is
@@ -30,6 +36,7 @@
 
 	onMount(() => {
 		timer = setInterval(() => {
+			now = Date.now();
 			if (livetail && visible) invalidate(() => true);
 		}, POLL_MS);
 		const onVis = () => {
@@ -47,10 +54,24 @@
 		Array.from(new Set(data.events.map((e) => e.cluster))).sort()
 	);
 
+	const rangeCutoffMs = $derived(
+		rangeFilter === '5m'
+			? 5 * 60_000
+			: rangeFilter === '1h'
+				? 60 * 60_000
+				: rangeFilter === '24h'
+					? 24 * 60 * 60_000
+					: null
+	);
+
 	const filtered = $derived(
 		data.events.filter((e) => {
 			if (outcomeFilter !== 'all' && e.outcome !== outcomeFilter) return false;
 			if (clusterFilter !== 'all' && e.cluster !== clusterFilter) return false;
+			if (rangeCutoffMs != null) {
+				const ts = Date.parse(e.ts);
+				if (!Number.isFinite(ts) || now - ts > rangeCutoffMs) return false;
+			}
 			if (!q) return true;
 			const needle = q.toLowerCase();
 			const hay = `${e.user} ${e.action} ${e.cluster} ${e.target?.kind ?? ''} ${e.target?.namespace ?? ''} ${e.target?.name ?? ''} ${e.message ?? ''}`.toLowerCase();
@@ -123,6 +144,11 @@
 	<div class="kinds">
 		{#each ['all', 'ok', 'denied', 'error'] as k}
 			<button class:active={outcomeFilter === k} onclick={() => (outcomeFilter = k as typeof outcomeFilter)}>{k}</button>
+		{/each}
+	</div>
+	<div class="kinds">
+		{#each ['all', '5m', '1h', '24h'] as k}
+			<button class:active={rangeFilter === k} onclick={() => (rangeFilter = k as typeof rangeFilter)} title={k === 'all' ? 'all time' : `last ${k}`}>{k}</button>
 		{/each}
 	</div>
 	{#if clusters.length > 1}

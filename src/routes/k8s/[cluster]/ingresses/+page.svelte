@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { createLiveList } from '$lib/live-list.svelte';
@@ -48,7 +48,13 @@
 		)
 	);
 
-	const kbd = createKbdNav({ rowCount: () => filtered.length });
+	const kbd = createKbdNav({
+		rowCount: () => filtered.length,
+		onEnter: (i) => {
+			const r = filtered[i];
+			if (r) goto(`/k8s/${data.cluster}/ingresses/${r.namespace}/${r.name}`);
+		}
+	});
 	$effect(() => kbd.attach());
 </script>
 
@@ -75,7 +81,7 @@
 		{#each filtered as r, i}
 			<tr class:row-focused={i === kbd.focusedIdx}>
 				<td><Highlight text={r.namespace} {q} /></td>
-				<td class="mono"><Highlight text={r.name} {q} /></td>
+				<td class="mono"><a href="/k8s/{data.cluster}/ingresses/{r.namespace}/{r.name}"><Highlight text={r.name} {q} /></a></td>
 				<td class="mono small">{r.className ?? '—'}</td>
 				<td class="rules">
 					{#each r.rules as rule}

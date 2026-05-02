@@ -15,9 +15,17 @@
 
 	let q = $state('');
 	let typeFilter = $state<'all' | 'Normal' | 'Warning'>('all');
+	let rangeFilter = $state<'all' | '5m' | '1h' | '24h'>('all');
 	let live = $state(false);
 	let streamState = $state<LiveStreamState>('idle');
 	let rows = $state<EventRow[]>([]);
+	// `now` ticks every 5s so the range cutoff slides forward in
+	// real time. Cheap — one assignment per tick.
+	let now = $state(Date.now());
+	$effect(() => {
+		const t = setInterval(() => (now = Date.now()), 5_000);
+		return () => clearInterval(t);
+	});
 
 	$effect(() => {
 		// Reset on loader fire (different cluster / ns).
@@ -94,9 +102,23 @@
 	});
 	onDestroy(stopLive);
 
+	const rangeCutoffMs = $derived(
+		rangeFilter === '5m'
+			? 5 * 60_000
+			: rangeFilter === '1h'
+				? 60 * 60_000
+				: rangeFilter === '24h'
+					? 24 * 60 * 60_000
+					: null
+	);
+
 	const filtered = $derived(
 		rows.filter((e) => {
 			if (typeFilter !== 'all' && e.type !== typeFilter) return false;
+			if (rangeCutoffMs != null) {
+				const ts = Date.parse(e.lastSeen ?? '');
+				if (!Number.isFinite(ts) || now - ts > rangeCutoffMs) return false;
+			}
 			if (!q) return true;
 			const needle = q.toLowerCase();
 			const hay = `${e.namespace} ${e.involved} ${e.reason} ${e.message}`.toLowerCase();
@@ -125,6 +147,11 @@
 	<div class="kinds">
 		{#each ['all', 'Normal', 'Warning'] as t}
 			<button class:active={typeFilter === t} onclick={() => (typeFilter = t as typeof typeFilter)}>{t}</button>
+		{/each}
+	</div>
+	<div class="kinds">
+		{#each ['all', '5m', '1h', '24h'] as r}
+			<button class:active={rangeFilter === r} onclick={() => (rangeFilter = r as typeof rangeFilter)} title={r === 'all' ? 'all time' : `last ${r}`}>{r}</button>
 		{/each}
 	</div>
 </div>
