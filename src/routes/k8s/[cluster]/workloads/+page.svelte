@@ -502,8 +502,9 @@
 	<input class="search" type="search" bind:value={q} placeholder="Filter by name…" />
 	<div class="kinds">
 		{#each ['all', 'Pod', 'Deployment', 'StatefulSet'] as k}
+			{@const count = k === 'all' ? localRows.length : localRows.filter((r) => r.kind === k).length}
 			<button class:active={kindFilter === k} onclick={() => (kindFilter = k as typeof kindFilter)}>
-				{k}
+				{k} <span class="count">{count}</span>
 			</button>
 		{/each}
 	</div>
@@ -716,6 +717,12 @@
 		background: var(--bg-elev);
 		color: var(--accent);
 		border-color: var(--accent);
+	}
+	.kinds button .count {
+		font-family: var(--font-mono);
+		font-size: 0.72em;
+		opacity: 0.7;
+		margin-left: 0.2rem;
 	}
 
 	.small {

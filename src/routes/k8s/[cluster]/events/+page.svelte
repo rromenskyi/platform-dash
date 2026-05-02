@@ -143,24 +143,6 @@
 {#if data.error}<p class="error">Failed to list events: {data.error}</p>{/if}
 
 <div class="controls">
-	{#if data.namespaces.length > 0}
-		<select
-			class="ns"
-			value={data.currentNs}
-			onchange={(e) => {
-				const v = (e.currentTarget as HTMLSelectElement).value;
-				const u = new URL(window.location.href);
-				if (v) u.searchParams.set('ns', v);
-				else u.searchParams.delete('ns');
-				window.location.href = u.toString();
-			}}
-		>
-			<option value="">all namespaces</option>
-			{#each data.namespaces as n}
-				<option value={n}>{n}</option>
-			{/each}
-		</select>
-	{/if}
 	<input class="search" type="search" bind:value={q} placeholder="Filter by ns / object / reason / message…" />
 	<div class="kinds">
 		{#each ['all', 'Normal', 'Warning'] as t}
@@ -214,8 +196,6 @@
 
 	.controls { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin: 1rem 0 0.5rem; }
 	.search { flex: 1 1 260px; min-width: 220px; padding: 0.5rem 0.8rem; background: var(--bg-elev); border: 1px solid var(--rule); border-radius: 8px; color: var(--fg); font: inherit; }
-	.ns { font: inherit; font-size: 0.85rem; padding: 0.5rem 0.7rem; background: var(--bg-elev); border: 1px solid var(--rule); color: var(--fg); border-radius: 6px; }
-	.ns:focus { outline: none; border-color: var(--accent); }
 	.search:focus { outline: none; border-color: var(--accent); }
 	.kinds { display: inline-flex; gap: 0.25rem; }
 	.kinds button { font: inherit; font-size: 0.8rem; padding: 0.4rem 0.7rem; border: 1px solid var(--rule); background: transparent; color: var(--fg-soft); border-radius: 6px; cursor: pointer; }

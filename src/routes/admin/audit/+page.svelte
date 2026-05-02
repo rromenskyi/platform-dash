@@ -9,6 +9,7 @@
 	let q = $state('');
 	let outcomeFilter = $state<'all' | 'ok' | 'denied' | 'error'>('all');
 	let clusterFilter = $state<string>('all');
+	let actionFilter = $state<string>('all');
 	let rangeFilter = $state<'all' | '5m' | '1h' | '24h'>('all');
 	let livetail = $state(true);
 
@@ -54,6 +55,10 @@
 		Array.from(new Set(data.events.map((e) => e.cluster))).sort()
 	);
 
+	const actions = $derived(
+		Array.from(new Set(data.events.map((e) => e.action))).sort()
+	);
+
 	const rangeCutoffMs = $derived(
 		rangeFilter === '5m'
 			? 5 * 60_000
@@ -68,6 +73,7 @@
 		data.events.filter((e) => {
 			if (outcomeFilter !== 'all' && e.outcome !== outcomeFilter) return false;
 			if (clusterFilter !== 'all' && e.cluster !== clusterFilter) return false;
+			if (actionFilter !== 'all' && e.action !== actionFilter) return false;
 			if (rangeCutoffMs != null) {
 				const ts = Date.parse(e.ts);
 				if (!Number.isFinite(ts) || now - ts > rangeCutoffMs) return false;
@@ -156,6 +162,14 @@
 			<option value="all">all clusters</option>
 			{#each clusters as c}
 				<option value={c}>{c}</option>
+			{/each}
+		</select>
+	{/if}
+	{#if actions.length > 1}
+		<select bind:value={actionFilter}>
+			<option value="all">all actions</option>
+			{#each actions as a}
+				<option value={a}>{a}</option>
 			{/each}
 		</select>
 	{/if}
