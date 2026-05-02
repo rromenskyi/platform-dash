@@ -59,6 +59,59 @@
 		}
 	});
 
+	// Last-N request history. Stored separately so the inline editor's
+	// localStorage round-trip stays small. Each entry includes enough
+	// to re-fire the same call: url, method, headers (with on flags),
+	// body, plus result status + ms for the recall row.
+	type HistoryEntry = {
+		at: string;
+		url: string;
+		method: string;
+		headers: Header[];
+		body: string;
+		status?: number;
+		ok: boolean;
+		ms: number;
+	};
+	const HISTORY_KEY = 'platform-dash:http-test:history:v1';
+	const HISTORY_CAP = 25;
+	let history = $state<HistoryEntry[]>(loadHistory());
+
+	function loadHistory(): HistoryEntry[] {
+		if (typeof localStorage === 'undefined') return [];
+		try {
+			const raw = localStorage.getItem(HISTORY_KEY);
+			if (!raw) return [];
+			const arr = JSON.parse(raw);
+			return Array.isArray(arr) ? (arr as HistoryEntry[]).slice(0, HISTORY_CAP) : [];
+		} catch {
+			return [];
+		}
+	}
+	function persistHistory() {
+		if (typeof localStorage === 'undefined') return;
+		try {
+			localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, HISTORY_CAP)));
+		} catch {
+			/* quota — silent */
+		}
+	}
+	function pushHistory(entry: HistoryEntry) {
+		history = [entry, ...history].slice(0, HISTORY_CAP);
+		persistHistory();
+	}
+	function recall(h: HistoryEntry) {
+		url = h.url;
+		method = h.method as typeof method;
+		headers = h.headers.length > 0 ? h.headers : [{ key: '', value: '', on: true }];
+		body = h.body;
+		result = null;
+	}
+	function clearHistory() {
+		history = [];
+		persistHistory();
+	}
+
 	function addHeader() {
 		headers = [...headers, { key: '', value: '', on: true }];
 	}
@@ -111,13 +164,41 @@
 				const text = await res.text();
 				result = { ok: false, error: text || res.statusText, ms: 0 };
 				toast.show(`request failed: ${text || res.statusText}`, 'err');
+				pushHistory({
+					at: new Date().toISOString(),
+					url,
+					method,
+					headers,
+					body,
+					ok: false,
+					ms: 0
+				});
 				return;
 			}
 			result = (await res.json()) as Result;
+			pushHistory({
+				at: new Date().toISOString(),
+				url,
+				method,
+				headers,
+				body,
+				status: 'status' in result ? result.status : undefined,
+				ok: 'status' in result ? result.status < 400 : false,
+				ms: result.ms
+			});
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			result = { ok: false, error: msg, ms: 0 };
 			toast.show(`request failed: ${msg}`, 'err');
+			pushHistory({
+				at: new Date().toISOString(),
+				url,
+				method,
+				headers,
+				body,
+				ok: false,
+				ms: 0
+			});
 		} finally {
 			sending = false;
 		}
@@ -261,6 +342,45 @@
 	</section>
 {/if}
 
+{#if history.length > 0}
+	<section class="hist">
+		<header class="hhead">
+			<h2>History <span class="muted small">(last {history.length})</span></h2>
+			<button class="ghost" onclick={clearHistory}>clear history</button>
+		</header>
+		<table>
+			<thead>
+				<tr>
+					<th>When</th>
+					<th>Method</th>
+					<th>URL</th>
+					<th>Status</th>
+					<th class="num">ms</th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody>
+				{#each history as h}
+					<tr>
+						<td class="ts" title={h.at}>{new Date(h.at).toLocaleTimeString()}</td>
+						<td class="mono">{h.method}</td>
+						<td class="mono url-cell" title={h.url}>{h.url}</td>
+						<td>
+							{#if h.status != null}
+								<span class="status-mini" class:ok={h.ok} class:bad={!h.ok}>{h.status}</span>
+							{:else}
+								<span class="muted">—</span>
+							{/if}
+						</td>
+						<td class="num">{h.ms}</td>
+						<td><button class="ghost recall" onclick={() => recall(h)}>recall</button></td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</section>
+{/if}
+
 <style>
 	.header { display: flex; justify-content: space-between; gap: 1rem; }
 	.header h1 { margin: 0; }
@@ -368,4 +488,27 @@
 		max-height: 60vh; overflow: auto; white-space: pre-wrap; word-break: break-all;
 	}
 	.snippet.err { color: #fb7185; }
+
+	.hist {
+		margin-top: 1rem; padding: 0.85rem 1rem;
+		background: var(--bg-elev); border: 1px solid var(--rule); border-radius: 8px;
+	}
+	.hhead { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: 0.4rem; }
+	.hhead h2 { margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+	.hist table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+	.hist th { text-align: left; padding: 0.3rem 0.55rem; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--rule); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; }
+	.hist th.num, .hist td.num { text-align: right; }
+	.hist td { padding: 0.4rem 0.55rem; border-bottom: 1px solid var(--rule); color: var(--fg-soft); vertical-align: middle; }
+	.hist tr:last-child td { border-bottom: 0; }
+	.hist td.mono { color: var(--fg); font-family: var(--font-mono); font-size: 0.92em; }
+	.hist td.url-cell { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.hist td.ts { color: var(--muted); white-space: nowrap; font-family: var(--font-mono); font-size: 0.85em; }
+	.hist .recall { font-size: 0.75rem; padding: 0.2rem 0.55rem; }
+	.status-mini {
+		display: inline-block; padding: 0.05rem 0.4rem; border-radius: 3px;
+		font-family: var(--font-mono); font-size: 0.78em;
+		border: 1px solid var(--rule);
+	}
+	.status-mini.ok { color: #6ee7b7; border-color: rgba(110, 231, 183, 0.4); }
+	.status-mini.bad { color: #fb7185; border-color: rgba(251, 113, 133, 0.4); }
 </style>

@@ -160,6 +160,24 @@
 	});
 	$effect(() => kbd.attach());
 
+	// Quick presets — common slices the operator hits during incident
+	// triage. Apply mutates the filter state; the persistence effect
+	// already round-trips to localStorage.
+	type Preset = { label: string; outcome: typeof outcomeFilter; range: typeof rangeFilter; q: string; action: string };
+	const PRESETS: Preset[] = [
+		{ label: 'denied 1h', outcome: 'denied', range: '1h', q: '', action: 'all' },
+		{ label: 'errors 1h', outcome: 'error', range: '1h', q: '', action: 'all' },
+		{ label: 'secret reveals 24h', outcome: 'all', range: '24h', q: '', action: 'secret-reveal' },
+		{ label: 'pod-deletes 24h', outcome: 'all', range: '24h', q: '', action: 'pod-delete' },
+		{ label: 'reset', outcome: 'all', range: 'all', q: '', action: 'all' }
+	];
+	function applyPreset(p: Preset) {
+		outcomeFilter = p.outcome;
+		rangeFilter = p.range;
+		q = p.q;
+		actionFilter = p.action;
+	}
+
 	function fmtTarget(t: { kind?: string; namespace?: string; name?: string }): string {
 		const parts: string[] = [];
 		if (t.kind) parts.push(t.kind);
@@ -192,6 +210,12 @@
 	Loki / kubectl logs hold the durable stream.
 	{livetail && visible ? '· tailing' : livetail && !visible ? '· tail paused (tab hidden)' : ''}
 </p>
+
+<div class="presets">
+	{#each PRESETS as p}
+		<button class="preset" onclick={() => applyPreset(p)}>{p.label}</button>
+	{/each}
+</div>
 
 <div class="controls">
 	<input class="search" type="search" bind:value={q} placeholder="Filter by user / action / target / message…" />
@@ -244,7 +268,7 @@
 		<tbody>
 			{#each filtered as e, i}
 				<tr class:row-focused={i === kbd.focusedIdx}>
-					<td class="ts">{fmtTs(e.ts)}</td>
+					<td class="ts" title={e.ts}>{fmtTs(e.ts)}</td>
 					<td class="mono">{e.user}</td>
 					<td class="mono">{e.cluster}</td>
 					<td class="mono">{e.action}</td>
@@ -325,4 +349,14 @@
 	.outcome-denied { color: #fcd34d; border-color: rgba(252, 211, 77, 0.4); }
 	.outcome-error { color: #fb7185; border-color: rgba(251, 113, 133, 0.4); }
 	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
+
+	.presets {
+		display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0.5rem;
+	}
+	.preset {
+		font: inherit; font-size: 0.78rem; padding: 0.25rem 0.65rem;
+		border: 1px dashed var(--rule); background: transparent; color: var(--fg-soft);
+		border-radius: 999px; cursor: pointer;
+	}
+	.preset:hover { color: var(--fg); border-color: var(--accent); }
 </style>
