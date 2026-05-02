@@ -46,6 +46,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 		throw error(404, `CRD "${reqBody.crdName}" not found`);
 	}
 	if (!servingVersion) throw error(409, 'CRD has no served version');
+	if (scope === 'Namespaced' && !reqBody.namespace) {
+		throw error(400, `${reqBody.crdName} is namespaced — namespace is required`);
+	}
+	if (scope !== 'Namespaced' && reqBody.namespace) {
+		throw error(400, `${reqBody.crdName} is cluster-scoped — namespace must not be set`);
+	}
 
 	const auditBase = {
 		user: session?.user?.email ?? session?.user?.name ?? 'unknown',

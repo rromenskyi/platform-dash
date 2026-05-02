@@ -38,7 +38,14 @@ function getClient(targetName: string, uri: string): Redis {
 	// URI no longer matches what we cached.
 	if (cached && cached.uri === uri) return cached.client;
 	if (cached) {
-		cached.client.disconnect();
+		// `quit()` flushes the queued commands before closing the
+		// socket — without that, an in-flight INFO racing with a URI
+		// rotation would error mid-flight. `disconnect()` is the
+		// rip-the-cord variant we don't want here.
+		cached.client.quit().catch(() => {
+			// Already gone or never connected — fine, the cache entry
+			// is being replaced anyway.
+		});
 	}
 	const c = new Redis(uri, {
 		maxRetriesPerRequest: 1,
