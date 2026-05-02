@@ -293,6 +293,17 @@
 			{/if}
 			{#if canWrite}
 				<div class="group">
+					<h3>Tools</h3>
+					<ul class="tree">
+						<li class="tnode">
+							<div class="trow">
+								<span class="caret-spacer"></span>
+								<a class="tlink" class:active={isHrefActive('/tools/http')} href="/tools/http">HTTP tester</a>
+							</div>
+						</li>
+					</ul>
+				</div>
+				<div class="group">
 					<h3>Admin</h3>
 					<ul class="tree">
 						<li class="tnode">

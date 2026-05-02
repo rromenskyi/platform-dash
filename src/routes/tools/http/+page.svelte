@@ -150,7 +150,7 @@
 			headersMap[k] = h.value;
 		}
 		try {
-			const res = await fetch(`/k8s/${data.cluster}/api/ingress-test`, {
+			const res = await fetch(`/api/http-test`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
