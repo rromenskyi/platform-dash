@@ -318,12 +318,23 @@ server.on('upgrade', (req, socket, head) => {
 		socket.destroy();
 		return;
 	}
+	// `handleExecUpgrade` is async; the upgrade event listener can't
+	// await it, so an unhandled rejection inside would otherwise hit
+	// the process-wide `unhandledRejection` and crash node 22 in
+	// strict mode. Catch + destroy as a last resort.
 	handleExecUpgrade(req, socket, head, {
 		cluster: decodeURIComponent(m[1]),
 		ns: decodeURIComponent(m[2]),
 		pod: decodeURIComponent(m[3]),
 		container: u.searchParams.get('container') ?? undefined,
 		shell: u.searchParams.get('shell') ?? undefined
+	}).catch((err) => {
+		console.error('handleExecUpgrade failed', err);
+		try {
+			socket.destroy();
+		} catch {
+			/* */
+		}
 	});
 });
 

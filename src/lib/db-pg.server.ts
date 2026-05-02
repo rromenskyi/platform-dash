@@ -38,13 +38,12 @@ export type PgStats = {
 	replication?: { inRecovery: boolean; lagSec?: number };
 };
 
-const pools = new Map<string, pg.Pool>();
+type CachedPool = { uri: string; pool: pg.Pool };
+const pools = new Map<string, CachedPool>();
 
-function getPool(targetName: string, uri: string): pg.Pool {
-	const cached = pools.get(targetName);
-	if (cached) return cached;
+function buildPool(label: string, connStr: string): pg.Pool {
 	const pool = new pg.Pool({
-		connectionString: uri,
+		connectionString: connStr,
 		max: 2,
 		idleTimeoutMillis: 60_000,
 		connectionTimeoutMillis: 5_000,
@@ -53,9 +52,24 @@ function getPool(targetName: string, uri: string): pg.Pool {
 	// Pool-level error handler — without it, idle client errors crash
 	// the process. We just log; the next acquire will rebuild a client.
 	pool.on('error', (err) => {
-		console.error(`pg pool [${targetName}] idle error`, err);
+		console.error(`pg pool [${label}] idle error`, err);
 	});
-	pools.set(targetName, pool);
+	return pool;
+}
+
+function getPool(targetName: string, uri: string): pg.Pool {
+	const cached = pools.get(targetName);
+	// Invalidate on URI drift — same pattern as the Redis / MySQL
+	// caches. Applier rotates ACL passwords; stale pools must die
+	// or every query fails with auth-failed forever.
+	if (cached && cached.uri === uri) return cached.pool;
+	if (cached) {
+		cached.pool.end().catch(() => {
+			/* */
+		});
+	}
+	const pool = buildPool(targetName, uri);
+	pools.set(targetName, { uri, pool });
 	return pool;
 }
 
@@ -65,10 +79,6 @@ function getPool(targetName: string, uri: string): pg.Pool {
 // the actual db connection.
 function getPoolForDb(targetName: string, uri: string, dbName: string): pg.Pool {
 	const key = `${targetName}::${dbName}`;
-	const cached = pools.get(key);
-	if (cached) return cached;
-	// Rewrite the URI's pathname to the target db; preserve everything
-	// else (host, creds, sslmode, etc).
 	let connStr = uri;
 	try {
 		const u = new URL(uri);
@@ -77,17 +87,15 @@ function getPoolForDb(targetName: string, uri: string, dbName: string): pg.Pool 
 	} catch {
 		/* malformed URI — let pg.Pool fail loudly on first acquire */
 	}
-	const pool = new pg.Pool({
-		connectionString: connStr,
-		max: 2,
-		idleTimeoutMillis: 60_000,
-		connectionTimeoutMillis: 5_000,
-		application_name: 'platform-dash'
-	});
-	pool.on('error', (err) => {
-		console.error(`pg pool [${key}] idle error`, err);
-	});
-	pools.set(key, pool);
+	const cached = pools.get(key);
+	if (cached && cached.uri === connStr) return cached.pool;
+	if (cached) {
+		cached.pool.end().catch(() => {
+			/* */
+		});
+	}
+	const pool = buildPool(key, connStr);
+	pools.set(key, { uri: connStr, pool });
 	return pool;
 }
 
@@ -356,12 +364,26 @@ export async function fetchPgSlowQueries(
 		}
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
+		// Distinguish "extension not installed" from real errors. The
+		// extension being absent is the default state on fresh
+		// Postgres clusters and isn't an error worth alerting on —
+		// audit it as `ok` with a hint message and surface the soft
+		// reason to the UI so the operator sees "install pg_stat_statements"
+		// instead of a red error toast.
+		const missing =
+			/relation "?pg_stat_statements"? does not exist/i.test(msg) ||
+			(typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === '42P01');
 		record({
 			...baseAudit,
-			outcome: 'error',
-			message: msg,
+			outcome: missing ? 'ok' : 'error',
+			message: missing ? 'pg_stat_statements not installed' : msg,
 			durationMs: Math.round(performance.now() - start)
 		});
-		return { ok: false, reason: msg };
+		return {
+			ok: false,
+			reason: missing
+				? 'pg_stat_statements extension not installed — run `CREATE EXTENSION pg_stat_statements;` as superuser to enable slow-query tracking'
+				: msg
+		};
 	}
 }

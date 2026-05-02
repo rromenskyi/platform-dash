@@ -26,17 +26,27 @@ export type MysqlStats = {
 	bufferPoolHitRate?: number;
 };
 
-const pools = new Map<string, mysql.Pool>();
+type CachedPool = { uri: string; pool: mysql.Pool };
+const pools = new Map<string, CachedPool>();
 
 function getPool(targetName: string, uri: string): mysql.Pool {
 	const cached = pools.get(targetName);
-	if (cached) return cached;
+	// Invalidate when the URI changes — same pattern as the Redis
+	// client cache. The platform's applier rotates DB ACL passwords
+	// on apply; without this guard the cached pool keeps using the
+	// stale URI and every query fails with auth-failed forever.
+	if (cached && cached.uri === uri) return cached.pool;
+	if (cached) {
+		cached.pool.end().catch(() => {
+			/* draining best-effort */
+		});
+	}
 	const pool = mysql.createPool({
 		uri,
 		connectionLimit: 2,
 		connectTimeout: 5_000
 	});
-	pools.set(targetName, pool);
+	pools.set(targetName, { uri, pool });
 	return pool;
 }
 
