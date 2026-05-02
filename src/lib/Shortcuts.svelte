@@ -73,6 +73,8 @@
 				case 'i': goto(`/incident`); e.preventDefault(); return;
 				case 'd': goto(`/db`); e.preventDefault(); return;
 				case 'c': goto(`/k8s/${c}/crds`); e.preventDefault(); return;
+				case 'e': goto(`/k8s/${c}/events`); e.preventDefault(); return;
+				case 'a': goto(`/admin/audit`); e.preventDefault(); return;
 				case 'm': goto(`/k8s/${c}/monitoring`); e.preventDefault(); return;
 				case 'p': goto(`/profile`); e.preventDefault(); return;
 				case 'g': goto(`/`); e.preventDefault(); return;
@@ -135,10 +137,22 @@
 				<dt><kbd>g</kbd> <kbd>n</kbd></dt><dd>nodes</dd>
 				<dt><kbd>g</kbd> <kbd>s</kbd></dt><dd>services</dd>
 				<dt><kbd>g</kbd> <kbd>c</kbd></dt><dd>crds</dd>
+				<dt><kbd>g</kbd> <kbd>e</kbd></dt><dd>events (cluster-wide)</dd>
 				<dt><kbd>g</kbd> <kbd>m</kbd></dt><dd>monitoring</dd>
 				<dt><kbd>g</kbd> <kbd>i</kbd></dt><dd>incident</dd>
 				<dt><kbd>g</kbd> <kbd>d</kbd></dt><dd>databases</dd>
+				<dt><kbd>g</kbd> <kbd>a</kbd></dt><dd>audit log</dd>
 				<dt><kbd>g</kbd> <kbd>p</kbd></dt><dd>profile</dd>
+			</dl>
+		</section>
+
+		<section>
+			<h3>List pages</h3>
+			<dl>
+				<dt><kbd>j</kbd> / <kbd>k</kbd></dt><dd>focus next / previous row</dd>
+				<dt><kbd>↵</kbd></dt><dd>open the focused row's detail page</dd>
+				<dt><kbd>x</kbd></dt><dd>toggle bulk selection (workloads / incident, admin only)</dd>
+				<dt><kbd>l</kbd></dt><dd>open logs (incident only)</dd>
 			</dl>
 		</section>
 
@@ -148,7 +162,8 @@
 				<dt><kbd>/</kbd></dt><dd>focus search box on the current page</dd>
 				<dt><kbd>r</kbd></dt><dd>refresh page data (invalidateAll)</dd>
 				<dt><kbd>?</kbd></dt><dd>toggle this cheatsheet</dd>
-				<dt><kbd>Esc</kbd></dt><dd>close help / cancel prefix</dd>
+				<dt><kbd>Esc</kbd></dt><dd>close help / cancel prefix / clear bulk selection</dd>
+				<dt><kbd>⌘</kbd> <kbd>K</kbd> / <kbd>Ctrl</kbd> <kbd>K</kbd></dt><dd>quick-search palette</dd>
 			</dl>
 		</section>
 
