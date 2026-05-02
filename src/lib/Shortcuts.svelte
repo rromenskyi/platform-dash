@@ -82,21 +82,29 @@
 			return;
 		}
 
+		// Layout-agnostic checks via e.code for the punctuation row —
+		// Russian / German / etc. layouts emit different e.key values
+		// for the physical `/` and `?` keys, but e.code stays `Slash`.
+		// `g` / `r` still go by e.key since letters work fine on
+		// non-Latin layouts that map shift+letter to the Latin char,
+		// and the user can also use latin layout for letter shortcuts.
+		if (e.code === 'Slash' && e.shiftKey) {
+			helpOpen = !helpOpen;
+			e.preventDefault();
+			return;
+		}
+		if (e.code === 'Slash' && !e.shiftKey) {
+			focusSearch();
+			e.preventDefault();
+			return;
+		}
 		switch (e.key) {
 			case 'g':
 				setPrefix('g');
 				e.preventDefault();
 				return;
-			case '/':
-				focusSearch();
-				e.preventDefault();
-				return;
 			case 'r':
 				invalidateAll();
-				e.preventDefault();
-				return;
-			case '?':
-				helpOpen = !helpOpen;
 				e.preventDefault();
 				return;
 		}

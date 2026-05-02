@@ -43,6 +43,17 @@ export class KbdNav {
 	#onKey = (e: KeyboardEvent) => {
 		if (this.#shouldSkip(e.target)) return;
 		if (e.metaKey || e.ctrlKey || e.altKey) return;
+		// Layout-agnostic `/` for focus-search — RU layout emits a
+		// different e.key for the same physical slash key.
+		if (e.code === 'Slash' && !e.shiftKey) {
+			const sel = this.#init.searchSelector ?? 'input.search';
+			const search = document.querySelector<HTMLInputElement>(sel);
+			if (search) {
+				search.focus();
+				e.preventDefault();
+			}
+			return;
+		}
 		const max = this.#init.rowCount() - 1;
 		switch (e.key) {
 			case 'j':
@@ -69,15 +80,6 @@ export class KbdNav {
 			case 'Escape':
 				if (this.#init.onEscape?.()) e.preventDefault();
 				return;
-			case '/': {
-				const sel = this.#init.searchSelector ?? 'input.search';
-				const search = document.querySelector<HTMLInputElement>(sel);
-				if (search) {
-					search.focus();
-					e.preventDefault();
-				}
-				return;
-			}
 		}
 	};
 
