@@ -39,7 +39,9 @@
 		{ label: 'Incident', group: 'Pages', href: '/incident' },
 		{ label: 'Databases', group: 'Pages', href: '/db' },
 		{ label: 'Profile', group: 'Pages', href: '/profile' },
-		{ label: 'Settings', group: 'Pages', href: '/settings' }
+		{ label: 'Settings', group: 'Pages', href: '/settings' },
+		{ label: 'Audit log', group: 'Admin', href: '/admin/audit' },
+		{ label: 'k8s API metrics', group: 'Admin', href: '/admin/metrics' }
 	];
 
 	const items = $derived<Item[]>([

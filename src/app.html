@@ -6,6 +6,19 @@
 		<meta name="text-scale" content="scale" />
 		<link rel="preconnect" href="https://rsms.me/" />
 		<link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+		<script>
+			// Apply persisted theme synchronously before first paint to
+			// avoid a dark→light flash on light-theme users on every nav.
+			// Defaults to dark if nothing is stored.
+			(function () {
+				try {
+					var t = localStorage.getItem('platform-dash:theme');
+					if (t === 'light' || t === 'dark') {
+						document.documentElement.dataset.theme = t;
+					}
+				} catch (e) {}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
