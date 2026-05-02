@@ -77,6 +77,12 @@ export function buildK8sTree(): ResourceNode[] {
 				meta: { family: 'k8s' }
 			},
 			{
+				id: `k8s/${cluster}/events`,
+				label: 'Events',
+				href: `/k8s/${cluster}/events`,
+				meta: { family: 'k8s' }
+			},
+			{
 				id: `k8s/${cluster}/monitoring`,
 				label: 'Monitoring',
 				href: `/k8s/${cluster}/monitoring`,

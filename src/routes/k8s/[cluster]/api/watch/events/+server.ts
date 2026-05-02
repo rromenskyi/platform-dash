@@ -4,9 +4,13 @@ import { watcher } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canRead } from '$lib/authz';
 
-// SSE feed of Event objects involving a specific resource. The pod
-// detail page uses this for its live events panel — same shape as
-// the static loader returns so the renderer can stay shared.
+// SSE feed of Event objects. Three modes by query string:
+//   ?ns=&name=&kind=  → events for that single resource (pod detail).
+//   ?ns=              → namespace-wide stream.
+//   (no params)       → cluster-wide stream.
+// The cluster-wide /events page hits the no-params form; the pod
+// detail page hits the targeted form. Same wire shape regardless so
+// the renderer can stay shared.
 export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	const session = await locals.auth();
 	const { cluster } = params;
@@ -16,12 +20,12 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	const ns = url.searchParams.get('ns');
 	const name = url.searchParams.get('name');
 	const kind = url.searchParams.get('kind') || 'Pod';
-	if (!ns || !name) throw error(400, 'ns + name required');
 
-	const path = `/api/v1/namespaces/${ns}/events`;
-	const queryParams = {
-		fieldSelector: `involvedObject.name=${name},involvedObject.kind=${kind}`
-	};
+	const path = ns ? `/api/v1/namespaces/${ns}/events` : `/api/v1/events`;
+	const queryParams: Record<string, string> = {};
+	if (name) {
+		queryParams.fieldSelector = `involvedObject.name=${name},involvedObject.kind=${kind}`;
+	}
 
 	const w = watcher(cluster);
 	const encoder = new TextEncoder();
@@ -53,7 +57,8 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 							firstTimestamp?: string;
 							lastTimestamp?: string;
 							eventTime?: string;
-							metadata?: { name?: string };
+							metadata?: { name?: string; namespace?: string };
+							involvedObject?: { kind?: string; name?: string; namespace?: string };
 						};
 						emit({
 							type,
@@ -64,7 +69,10 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 								count: e.count ?? 1,
 								firstSeen: e.firstTimestamp ?? e.eventTime,
 								lastSeen: e.lastTimestamp ?? e.eventTime,
-								name: e.metadata?.name ?? ''
+								name: e.metadata?.name ?? '',
+								namespace:
+									e.metadata?.namespace ?? e.involvedObject?.namespace ?? '',
+								involved: `${e.involvedObject?.kind ?? '?'}/${e.involvedObject?.name ?? '?'}`
 							}
 						});
 					},
