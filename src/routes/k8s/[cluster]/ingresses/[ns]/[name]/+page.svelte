@@ -126,6 +126,34 @@
 	</section>
 {/if}
 
+{#if data.events.length > 0}
+	<section class="card">
+		<h2>Events <span class="muted small">(involvedObject={data.ns}/{data.name})</span></h2>
+		<table>
+			<thead>
+				<tr>
+					<th>Type</th>
+					<th>Reason</th>
+					<th>Message</th>
+					<th class="num">Count</th>
+					<th>Last seen</th>
+				</tr>
+			</thead>
+			<tbody>
+				{#each data.events as e}
+					<tr>
+						<td><span class="ev-type ev-type-{e.type.toLowerCase()}">{e.type}</span></td>
+						<td class="mono">{e.reason}</td>
+						<td class="msg">{e.message}</td>
+						<td class="num">{e.count}</td>
+						<td>{age(e.lastSeen)}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</section>
+{/if}
+
 {#if data.scopedAudit.length > 0}
 	<section class="card">
 		<h2>Recent actions <span class="muted small">(audit ring)</span></h2>
@@ -189,4 +217,8 @@
 	.outcome-ok { color: #6ee7b7; border-color: rgba(110, 231, 183, 0.4); }
 	.outcome-denied { color: #fcd34d; border-color: rgba(252, 211, 77, 0.4); }
 	.outcome-error { color: #fb7185; border-color: rgba(251, 113, 133, 0.4); }
+	.ev-type { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 4px; font-size: 0.7rem; }
+	.ev-type-normal { color: var(--muted); border: 1px solid var(--rule); }
+	.ev-type-warning { color: #fcd34d; border: 1px solid #fcd34d; }
+	td.msg { color: var(--fg); max-width: 480px; }
 </style>

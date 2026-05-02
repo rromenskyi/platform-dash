@@ -1,8 +1,48 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { networking } from '$lib/k8s.server';
+import { networking, core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { auditScopedTo } from '$lib/audit.server';
+
+export type ScopedEvent = {
+	type: string;
+	reason: string;
+	message: string;
+	count: number;
+	lastSeen?: string;
+};
+
+async function listScopedEvents(
+	cluster: string,
+	ns: string,
+	name: string,
+	kind: string
+): Promise<ScopedEvent[]> {
+	try {
+		const res = await time(`${cluster}/listNamespacedEvent`, () =>
+			core(cluster).listNamespacedEvent({
+				namespace: ns,
+				fieldSelector: `involvedObject.name=${name},involvedObject.kind=${kind}`
+			})
+		);
+		return res.items
+			.map((e) => ({
+				type: e.type ?? '?',
+				reason: e.reason ?? '?',
+				message: e.message ?? '',
+				count: e.count ?? 1,
+				lastSeen: e.lastTimestamp
+					? new Date(e.lastTimestamp).toISOString()
+					: e.eventTime
+						? new Date(e.eventTime).toISOString()
+						: undefined
+			}))
+			.sort((a, b) => (b.lastSeen ?? '').localeCompare(a.lastSeen ?? ''));
+	} catch (err) {
+		console.warn(`list events ${cluster}/${ns}/${kind}/${name} failed`, err);
+		return [];
+	}
+}
 
 export type IngressRule = {
 	host?: string;
@@ -77,6 +117,7 @@ export const load: PageServerLoad = async (event) => {
 			labels: (ing.metadata?.labels ?? {}) as Record<string, string>,
 			annotations: (ing.metadata?.annotations ?? {}) as Record<string, string>
 		},
+		events: await listScopedEvents(cluster, ns, name, 'Ingress'),
 		scopedAudit: auditScopedTo({ cluster, kind: 'Ingress', namespace: ns, name, limit: 20 })
 	};
 };

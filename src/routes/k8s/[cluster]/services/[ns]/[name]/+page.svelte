@@ -142,6 +142,34 @@
 	{/if}
 </section>
 
+{#if data.events.length > 0}
+	<section class="card">
+		<h2>Events <span class="muted small">(involvedObject={data.ns}/{data.name})</span></h2>
+		<table>
+			<thead>
+				<tr>
+					<th>Type</th>
+					<th>Reason</th>
+					<th>Message</th>
+					<th class="num">Count</th>
+					<th>Last seen</th>
+				</tr>
+			</thead>
+			<tbody>
+				{#each data.events as e}
+					<tr>
+						<td><span class="ev-type ev-type-{e.type.toLowerCase()}">{e.type}</span></td>
+						<td class="mono">{e.reason}</td>
+						<td class="msg">{e.message}</td>
+						<td class="num">{e.count}</td>
+						<td>{age(e.lastSeen)}</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</section>
+{/if}
+
 {#if labelEntries.length > 0}
 	<section class="card">
 		<h2>Labels</h2>
@@ -221,4 +249,7 @@
 	.outcome-denied { color: #fcd34d; border-color: rgba(252, 211, 77, 0.4); }
 	.outcome-error { color: #fb7185; border-color: rgba(251, 113, 133, 0.4); }
 	.error { padding: 0.6rem 0.85rem; background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; border-radius: 6px; color: #fb7185; font-size: 0.85rem; }
+	.ev-type { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 4px; font-size: 0.7rem; }
+	.ev-type-normal { color: var(--muted); border: 1px solid var(--rule); }
+	.ev-type-warning { color: #fcd34d; border: 1px solid #fcd34d; }
 </style>
