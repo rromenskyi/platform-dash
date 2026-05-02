@@ -23,7 +23,7 @@
 	type Prefs = {
 		kindFilter: 'all' | 'Pod' | 'Deployment' | 'StatefulSet';
 		statusFilter: string;
-		sortKey: 'chaos' | 'namespace' | 'kind' | 'name' | 'ready' | 'status' | 'restarts' | 'node' | 'age';
+		sortKey: 'chaos' | 'namespace' | 'kind' | 'name' | 'ready' | 'status' | 'restarts' | 'image' | 'node' | 'age';
 		sortDir: 'asc' | 'desc';
 	};
 	const initialPrefs: Prefs = (() => {
@@ -250,6 +250,17 @@
 				return statusWeight(a.status) - statusWeight(b.status) || a.status.localeCompare(b.status);
 			case 'restarts':
 				return a.restarts - b.restarts;
+			case 'image': {
+				// ImagePullError rows surface first regardless of dir,
+				// then alpha by image string. Pods sharing an image get
+				// secondary sort by ns/name so groups stay readable.
+				const aBad = a.imagePullError ? 1 : 0;
+				const bBad = b.imagePullError ? 1 : 0;
+				if (aBad !== bBad) return bBad - aBad;
+				const ai = a.image ?? '';
+				const bi = b.image ?? '';
+				return ai.localeCompare(bi) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name);
+			}
 			case 'node': {
 				// Group by node, then ns/name within. Pods without a node
 				// (e.g. Pending / unscheduled, or Deployment/StatefulSet
@@ -571,7 +582,7 @@
 			<th class="sortable" onclick={() => setSort('ready')}>Ready{sortIndicator('ready')}</th>
 			<th class="sortable" onclick={() => setSort('status')}>Status{sortIndicator('status')}</th>
 			<th class="sortable" onclick={() => setSort('restarts')}>Restarts{sortIndicator('restarts')}</th>
-			<th>Image</th>
+			<th class="sortable" onclick={() => setSort('image')}>Image{sortIndicator('image')}</th>
 			<th class="sortable" onclick={() => setSort('node')}>Node{sortIndicator('node')}</th>
 			<th class="sortable" onclick={() => setSort('age')}>Age{sortIndicator('age')}</th>
 			<th>Actions</th>
