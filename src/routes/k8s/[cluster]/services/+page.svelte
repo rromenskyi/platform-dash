@@ -8,6 +8,7 @@
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
 	import LiveDot from '$lib/LiveDot.svelte';
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
+	import Highlight from '$lib/Highlight.svelte';
 
 	let { data } = $props();
 	let q = $state('');
@@ -69,8 +70,8 @@
 	<tbody>
 		{#each filtered as r, i}
 			<tr class:row-focused={i === kbd.focusedIdx}>
-				<td>{r.namespace}</td>
-				<td class="mono">{r.name}</td>
+				<td><Highlight text={r.namespace} {q} /></td>
+				<td class="mono"><Highlight text={r.name} {q} /></td>
 				<td><span class="type type-{r.type.toLowerCase()}">{r.type}</span></td>
 				<td class="mono small">{r.clusterIP}</td>
 				<td class="mono small">{r.externalIP}</td>

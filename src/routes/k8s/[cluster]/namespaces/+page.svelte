@@ -7,6 +7,7 @@
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
 	import LiveDot from '$lib/LiveDot.svelte';
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
+	import Highlight from '$lib/Highlight.svelte';
 
 	let { data } = $props();
 	let q = $state('');
@@ -66,7 +67,7 @@
 	<tbody>
 		{#each filtered as n, i}
 			<tr class:row-focused={i === kbd.focusedIdx}>
-				<td class="mono"><a href="/k8s/{data.cluster}/workloads?ns={encodeURIComponent(n.name)}">{n.name}</a></td>
+				<td class="mono"><a href="/k8s/{data.cluster}/workloads?ns={encodeURIComponent(n.name)}"><Highlight text={n.name} {q} /></a></td>
 				<td><span class="phase phase-{n.phase.toLowerCase()}">{n.phase}</span></td>
 				<td class="labels">
 					{#each Object.entries(n.labels).slice(0, 3) as [k, v]}
