@@ -5,16 +5,61 @@
 	import { page } from '$app/state';
 	import { registerLive, unregisterLive } from '$lib/live-registry.svelte';
 	import { toast } from '$lib/toast.svelte';
+	import LiveDot from '$lib/LiveDot.svelte';
+	import type { LiveStreamState } from '$lib/live-list.svelte';
 
 	let { data } = $props();
 
 	let refreshing = $state(false);
 	let showAnnotations = $state(false);
 	let liveEvents = $state(false);
+	let streamState = $state<LiveStreamState>('idle');
 	// Mirror data.events into a mutable list so live deltas can splice
 	// in place without overwriting the loader's snapshot. Re-seeded on
 	// every loader fire via the $effect below.
 	let liveEventList = $state<typeof data.events>([]);
+
+	// Diagnosis: synthesize a one-liner explaining why the pod is not
+	// happy, picking from container state -> last termination -> latest
+	// Warning event. Shown in a banner above the fold so the operator
+	// doesn't have to scroll three sections to find what kubectl
+	// describe would tell them.
+	const diagnosis = $derived.by(() => {
+		const phase = data.pod.phase;
+		// Container with the worst state wins.
+		const waiting = data.containers.find((c) => c.state.startsWith('waiting'))?.state;
+		const terminated = data.containers.find((c) => c.state.startsWith('terminated'))?.state;
+		const lastTerm = data.containers.find((c) => c.lastTerminationReason);
+		const warn = liveEventList.find((e) => e.type === 'Warning');
+		// "All ready" means every container reports ready=true; otherwise
+		// surface the first non-ready container by name.
+		const notReady = data.containers.filter((c) => !c.ready).map((c) => c.name);
+		const ok =
+			phase === 'Running' &&
+			notReady.length === 0 &&
+			!terminated &&
+			data.containers.every((c) => c.restartCount < 3);
+		if (ok) return null;
+		const lines: string[] = [];
+		if (phase !== 'Running' && phase !== 'Succeeded') {
+			lines.push(`phase: ${phase}`);
+		}
+		if (waiting) lines.push(waiting);
+		if (terminated) lines.push(terminated);
+		if (lastTerm?.lastTerminationReason) {
+			lines.push(
+				`last terminated: ${lastTerm.lastTerminationReason}` +
+					(lastTerm.lastTerminationExitCode !== undefined
+						? ` (exit ${lastTerm.lastTerminationExitCode})`
+						: '')
+			);
+		}
+		if (notReady.length > 0 && phase === 'Running') {
+			lines.push(`not ready: ${notReady.join(', ')}`);
+		}
+		if (warn) lines.push(`warn (${warn.reason}): ${warn.message}`.slice(0, 180));
+		return lines.length ? lines : null;
+	});
 
 	const canWrite = $derived(!!page.data.canWrite);
 
@@ -45,6 +90,7 @@
 
 	function startEventStream() {
 		if (es) return;
+		streamState = 'connecting';
 		const u = new URL(`/k8s/${data.cluster}/api/watch/events`, window.location.origin);
 		u.searchParams.set('ns', data.pod.namespace);
 		u.searchParams.set('name', data.pod.name);
@@ -54,9 +100,14 @@
 		registerLive(eventsKey(), () => {
 			src.close();
 			if (es === src) es = null;
+			streamState = 'closed';
 			liveEvents = false;
 		});
+		src.onopen = () => {
+			if (es === src) streamState = 'open';
+		};
 		src.onmessage = (ev) => {
+			if (es === src) streamState = 'open';
 			try {
 				const msg = JSON.parse(ev.data);
 				if (msg.type === 'error') {
@@ -78,12 +129,17 @@
 				/* */
 			}
 		};
+		src.onerror = () => {
+			if (es !== src) return;
+			streamState = src.readyState === EventSource.CLOSED ? 'closed' : 'reconnecting';
+		};
 	}
 	function stopEventStream() {
 		if (es) {
 			unregisterLive(eventsKey());
 			es = null;
 		}
+		streamState = 'idle';
 	}
 	$effect(() => {
 		if (liveEvents) startEventStream();
@@ -198,6 +254,17 @@
 	<p class="muted small">
 		Owned by: {#each data.pod.ownerRefs as o, i}{i ? ', ' : ''}<code>{o.kind}/{o.name}</code>{/each}
 	</p>
+{/if}
+
+{#if diagnosis}
+	<section class="diag">
+		<h2>Diagnosis</h2>
+		<ul>
+			{#each diagnosis as line}
+				<li>{line}</li>
+			{/each}
+		</ul>
+	</section>
 {/if}
 
 <section class="card">
@@ -331,7 +398,7 @@
 		<span class="muted small">(involvedObject={data.pod.namespace}/{data.pod.name})</span>
 		<label class="live-mini">
 			<input type="checkbox" bind:checked={liveEvents} />
-			<span class="dot {liveEvents ? 'on' : 'off'}"></span> live
+			<LiveDot state={streamState} /> live
 		</label>
 	</h2>
 	{#if data.eventsError}
@@ -641,14 +708,28 @@
 		cursor: pointer;
 	}
 	.live-mini input { accent-color: var(--accent); }
-	.dot {
-		display: inline-block;
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
+
+	.diag {
+		margin-top: 1rem;
+		padding: 0.85rem 1rem;
+		background: rgba(251, 113, 133, 0.08);
+		border: 1px solid #fb7185;
+		border-radius: 8px;
 	}
-	.dot.on { background: #6ee7b7; box-shadow: 0 0 5px #6ee7b7; }
-	.dot.off { background: var(--muted); }
+	.diag h2 {
+		margin: 0 0 0.4rem;
+		font-size: 0.78rem;
+		text-transform: uppercase;
+		letter-spacing: 0.07em;
+		color: #fb7185;
+	}
+	.diag ul {
+		margin: 0;
+		padding-left: 1.1rem;
+		color: var(--fg);
+		font-size: 0.88rem;
+	}
+	.diag li { padding: 0.1rem 0; font-family: var(--font-mono); }
 
 	.kv {
 		display: grid;

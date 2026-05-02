@@ -2,8 +2,53 @@
 	import { age } from '$lib/k8s';
 	import { invalidate, invalidateAll } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
+	import { page } from '$app/state';
+	import { toast } from '$lib/toast.svelte';
 
 	let { data } = $props();
+	const canWrite = $derived(!!page.data.canWrite);
+
+	// Per-row in-flight set so the operator's Nth click on the same
+	// row doesn't fire N concurrent kicks. Keyed by `${cluster}|${ns}|${name}`.
+	let busy = $state<Set<string>>(new Set());
+	function isBusy(cluster: string, ns: string, name: string): boolean {
+		return busy.has(`${cluster}|${ns}|${name}`);
+	}
+	function setBusy(k: string, on: boolean) {
+		const next = new Set(busy);
+		if (on) next.add(k);
+		else next.delete(k);
+		busy = next;
+	}
+
+	async function podAction(action: string, cluster: string, ns: string, name: string, body: object) {
+		const key = `${cluster}|${ns}|${name}`;
+		if (busy.has(key)) return;
+		setBusy(key, true);
+		try {
+			const res = await fetch(`/k8s/${cluster}/api/${action}`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body)
+			});
+			if (!res.ok) {
+				const text = await res.text();
+				toast.show(`${action} failed (${res.status}): ${text || res.statusText}`, 'err');
+				return;
+			}
+			toast.show(`${action} ${ns}/${name} ok`);
+			await invalidate(() => true);
+		} catch (err) {
+			toast.show(`${action} failed: ${err instanceof Error ? err.message : String(err)}`, 'err');
+		} finally {
+			setBusy(key, false);
+		}
+	}
+
+	function killPod(cluster: string, ns: string, name: string) {
+		if (!confirm(`Delete pod ${ns}/${name}?\n\nController will respawn it if it has one.`)) return;
+		podAction('pod-delete', cluster, ns, name, { namespace: ns, name });
+	}
 
 	const POLL_MS = 30_000;
 	let timer: ReturnType<typeof setInterval> | null = null;
@@ -92,7 +137,7 @@
 			<h3>Failing pods <span class="muted small">(top {r.failingPods.length})</span></h3>
 			<table>
 				<thead>
-					<tr><th>Namespace</th><th>Pod</th><th>Phase</th><th class="num">Restarts</th><th>Reason</th><th>Started</th></tr>
+					<tr><th>Namespace</th><th>Pod</th><th>Phase</th><th class="num">Restarts</th><th>Reason</th><th>Started</th><th class="actions-h">Actions</th></tr>
 				</thead>
 				<tbody>
 					{#each r.failingPods as p}
@@ -108,6 +153,18 @@
 								{#if p.exitCode !== undefined}<span class="muted small">(exit {p.exitCode})</span>{/if}
 							</td>
 							<td>{age(p.startedAt)}</td>
+							<td class="actions">
+								<a class="chip-act" href="/k8s/{r.cluster}/pod/{p.namespace}/{p.name}/logs" title="Logs">logs</a>
+								<a class="chip-act" href="/k8s/{r.cluster}/pod/{p.namespace}/{p.name}" title="Detail / events">detail</a>
+								{#if canWrite}
+									<button
+										class="chip-act danger"
+										onclick={() => killPod(r.cluster, p.namespace, p.name)}
+										disabled={isBusy(r.cluster, p.namespace, p.name)}
+										title="Delete pod (controller will respawn)"
+									>kill</button>
+								{/if}
+							</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -225,4 +282,27 @@
 	.cond-true { color: #fcd34d; }
 	.cond-false { color: #fb7185; }
 	.cond-unknown { color: var(--muted); }
+
+	td.actions { white-space: nowrap; }
+	th.actions-h { text-align: right; }
+	td.actions { text-align: right; }
+	.chip-act {
+		font: inherit;
+		font-size: 0.72rem;
+		padding: 0.1rem 0.45rem;
+		margin-left: 0.25rem;
+		border: 1px solid var(--rule);
+		background: transparent;
+		color: var(--fg-soft);
+		border-radius: 4px;
+		cursor: pointer;
+		text-decoration: none;
+		display: inline-block;
+	}
+	.chip-act:hover:not(:disabled) {
+		color: var(--fg);
+		border-color: var(--accent);
+	}
+	.chip-act.danger:hover:not(:disabled) { color: #fb7185; border-color: #fb7185; }
+	.chip-act:disabled { cursor: wait; opacity: 0.5; }
 </style>
