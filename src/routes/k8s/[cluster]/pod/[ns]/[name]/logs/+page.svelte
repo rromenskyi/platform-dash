@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import LiveDot from '$lib/LiveDot.svelte';
+	import type { LiveStreamState } from '$lib/live-list.svelte';
 
 	let { data } = $props();
 
@@ -17,6 +19,7 @@
 
 	let lines = $state<string[]>([]);
 	let connected = $state(false);
+	let streamState = $state<LiveStreamState>('idle');
 	let errMsg = $state<string | null>(null);
 	let autoscroll = $state(true);
 
@@ -46,11 +49,19 @@
 		errMsg = null;
 		lines = [];
 		connected = false;
-		es = new EventSource(buildUrl());
-		es.onopen = () => {
+		streamState = 'connecting';
+		const src = new EventSource(buildUrl());
+		es = src;
+		src.onopen = () => {
+			if (es !== src) return;
 			connected = true;
+			streamState = 'open';
 		};
-		es.onmessage = (ev) => {
+		src.onmessage = (ev) => {
+			if (es === src) {
+				connected = true;
+				streamState = 'open';
+			}
 			lines.push(ev.data);
 			// Cap the buffer to keep the DOM happy on very chatty pods —
 			// the streaming endpoint can deliver thousands of lines/sec
@@ -58,14 +69,18 @@
 			if (lines.length > 5000) lines = lines.slice(-5000);
 			scheduleScroll();
 		};
-		es.addEventListener('error', (ev) => {
+		src.addEventListener('error', (ev) => {
+			if (es !== src) return;
 			const msg = (ev as MessageEvent).data;
 			if (msg) errMsg = String(msg);
 			connected = false;
+			streamState = src.readyState === EventSource.CLOSED ? 'closed' : 'reconnecting';
 		});
-		es.addEventListener('end', () => {
+		src.addEventListener('end', () => {
+			if (es !== src) return;
 			connected = false;
-			es?.close();
+			streamState = 'closed';
+			src.close();
 			es = null;
 		});
 	}
@@ -76,6 +91,7 @@
 			es = null;
 		}
 		connected = false;
+		streamState = 'idle';
 	}
 
 	function scheduleScroll() {
@@ -132,13 +148,12 @@
 <div class="header">
 	<h1>Logs</h1>
 	<div class="status">
-		{#if connected}
-			<span class="dot dot-on"></span> live
-		{:else if follow}
-			<span class="dot dot-off"></span> reconnecting…
-		{:else}
-			<span class="dot dot-off"></span> stopped
-		{/if}
+		<LiveDot state={streamState} />
+		{#if streamState === 'open'}live
+		{:else if streamState === 'connecting'}connecting…
+		{:else if streamState === 'reconnecting'}reconnecting…
+		{:else if streamState === 'closed'}{follow ? 'closed' : 'stopped'}
+		{:else}idle{/if}
 		<span class="muted small">· {filtered.length}{grep ? ` of ${lines.length}` : ''} lines</span>
 	</div>
 </div>
@@ -224,14 +239,6 @@
 		font-size: 0.85rem;
 		color: var(--fg-soft);
 	}
-	.dot {
-		display: inline-block;
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-	}
-	.dot-on { background: #6ee7b7; box-shadow: 0 0 6px #6ee7b7; }
-	.dot-off { background: #fcd34d; }
 	.small { font-size: 0.85rem; }
 
 	.controls {

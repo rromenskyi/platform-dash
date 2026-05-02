@@ -11,6 +11,7 @@
 	import type { LiveStreamState } from '$lib/live-list.svelte';
 	import { goto } from '$app/navigation';
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
+	import Highlight from '$lib/Highlight.svelte';
 
 	let { data } = $props();
 
@@ -564,13 +565,13 @@
 						/>
 					</td>
 				{/if}
-				<td>{r.namespace}</td>
+				<td><Highlight text={r.namespace} {q} /></td>
 				<td><span class="kind kind-{r.kind.toLowerCase()}">{r.kind}</span></td>
 				<td class="name">
 					{#if r.kind === 'Pod'}
-						<a href="/k8s/{data.cluster}/pod/{r.namespace}/{r.name}">{r.name}</a>
+						<a href="/k8s/{data.cluster}/pod/{r.namespace}/{r.name}"><Highlight text={r.name} {q} /></a>
 					{:else}
-						{r.name}
+						<Highlight text={r.name} {q} />
 					{/if}
 				</td>
 				<td>{r.ready}</td>

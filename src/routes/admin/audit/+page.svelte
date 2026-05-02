@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { invalidate, invalidateAll } from '$app/navigation';
+	import { invalidate, invalidateAll, goto } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
+	import { createKbdNav } from '$lib/kbd-nav.svelte';
 
 	let { data } = $props();
 
@@ -56,6 +57,33 @@
 			return hay.includes(needle);
 		})
 	);
+
+	const kbd = createKbdNav({
+		rowCount: () => filtered.length,
+		onEnter: (i) => {
+			const e = filtered[i];
+			const t = e?.target;
+			if (!t?.kind || !t?.name) return;
+			// Map kind → detail route. Anything we don't have a detail
+			// page for (cluster-scoped resources, custom kinds outside
+			// CRDs) just no-ops on Enter.
+			const ns = t.namespace ? String(t.namespace) : '';
+			const url = (() => {
+				switch (t.kind) {
+					case 'Pod':
+						return ns ? `/k8s/${e.cluster}/pod/${ns}/${t.name}` : null;
+					case 'ConfigMap':
+						return ns ? `/k8s/${e.cluster}/configmaps/${ns}/${t.name}` : null;
+					case 'Secret':
+						return ns ? `/k8s/${e.cluster}/secrets/${ns}/${t.name}` : null;
+					default:
+						return null;
+				}
+			})();
+			if (url) goto(url);
+		}
+	});
+	$effect(() => kbd.attach());
 
 	function fmtTarget(t: { kind?: string; namespace?: string; name?: string }): string {
 		const parts: string[] = [];
@@ -126,8 +154,8 @@
 			</tr>
 		</thead>
 		<tbody>
-			{#each filtered as e}
-				<tr>
+			{#each filtered as e, i}
+				<tr class:row-focused={i === kbd.focusedIdx}>
 					<td class="ts">{fmtTs(e.ts)}</td>
 					<td class="mono">{e.user}</td>
 					<td class="mono">{e.cluster}</td>
@@ -208,4 +236,5 @@
 	.outcome-ok { color: #6ee7b7; border-color: rgba(110, 231, 183, 0.4); }
 	.outcome-denied { color: #fcd34d; border-color: rgba(252, 211, 77, 0.4); }
 	.outcome-error { color: #fb7185; border-color: rgba(251, 113, 133, 0.4); }
+	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
 </style>
