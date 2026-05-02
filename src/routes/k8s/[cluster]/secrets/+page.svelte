@@ -11,7 +11,17 @@
 	import Highlight from '$lib/Highlight.svelte';
 
 	let { data } = $props();
-	let q = $state('');
+
+	const Q_KEY = 'platform-dash:secrets:q';
+	let q = $state(typeof localStorage === 'undefined' ? '' : (localStorage.getItem(Q_KEY) ?? ''));
+	$effect(() => {
+		if (typeof localStorage === 'undefined') return;
+		try {
+			localStorage.setItem(Q_KEY, q);
+		} catch {
+			/* */
+		}
+	});
 
 	const live = createLiveList<SecretRow>({
 		initial: [],

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { createLiveList } from '$lib/live-list.svelte';
@@ -11,8 +11,30 @@
 	import Highlight from '$lib/Highlight.svelte';
 
 	let { data } = $props();
-	let q = $state('');
-	let typeFilter = $state<'all' | 'ClusterIP' | 'NodePort' | 'LoadBalancer' | 'ExternalName'>('all');
+
+	const PREF_KEY = 'platform-dash:services:v1';
+	type Prefs = { q: string; typeFilter: 'all' | 'ClusterIP' | 'NodePort' | 'LoadBalancer' | 'ExternalName' };
+	const initial: Prefs = (() => {
+		if (typeof localStorage === 'undefined') return { q: '', typeFilter: 'all' };
+		try {
+			const raw = localStorage.getItem(PREF_KEY);
+			if (!raw) throw new Error();
+			const p = JSON.parse(raw) as Prefs;
+			return { q: p.q ?? '', typeFilter: p.typeFilter ?? 'all' };
+		} catch {
+			return { q: '', typeFilter: 'all' };
+		}
+	})();
+	let q = $state(initial.q);
+	let typeFilter = $state<Prefs['typeFilter']>(initial.typeFilter);
+	$effect(() => {
+		if (typeof localStorage === 'undefined') return;
+		try {
+			localStorage.setItem(PREF_KEY, JSON.stringify({ q, typeFilter }));
+		} catch {
+			/* */
+		}
+	});
 
 	const live = createLiveList<SvcRow>({
 		initial: [],
@@ -39,7 +61,13 @@
 		})
 	);
 
-	const kbd = createKbdNav({ rowCount: () => filtered.length });
+	const kbd = createKbdNav({
+		rowCount: () => filtered.length,
+		onEnter: (i) => {
+			const r = filtered[i];
+			if (r) goto(`/k8s/${data.cluster}/services/${r.namespace}/${r.name}`);
+		}
+	});
 	$effect(() => kbd.attach());
 </script>
 
@@ -71,7 +99,7 @@
 		{#each filtered as r, i}
 			<tr class:row-focused={i === kbd.focusedIdx}>
 				<td><Highlight text={r.namespace} {q} /></td>
-				<td class="mono"><Highlight text={r.name} {q} /></td>
+				<td class="mono"><a href="/k8s/{data.cluster}/services/{r.namespace}/{r.name}"><Highlight text={r.name} {q} /></a></td>
 				<td><span class="type type-{r.type.toLowerCase()}">{r.type}</span></td>
 				<td class="mono small">{r.clusterIP}</td>
 				<td class="mono small">{r.externalIP}</td>

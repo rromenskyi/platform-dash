@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { core, apps, apiextensions } from '$lib/k8s.server';
+import { core, apps, apiextensions, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 
 export const load: PageServerLoad = async (event) => {
@@ -80,5 +80,66 @@ export const load: PageServerLoad = async (event) => {
 		};
 	}
 
-	return { session, summary, cluster };
+	// Top consumers — best-effort metrics-server snapshot. Optional;
+	// clusters without metrics-server installed return 404 and the
+	// section just renders empty in the UI.
+	let topPods: Array<{ namespace: string; name: string; cpuMilli: number; memBytes: number }> = [];
+	let metricsAvailable = true;
+	try {
+		const ml = await time(`${cluster}/getPodMetricsAll`, () =>
+			metrics(cluster).getPodMetrics()
+		);
+		const rows = ml.items.map((it) => {
+			let cpuMilli = 0;
+			let memBytes = 0;
+			for (const c of it.containers) {
+				cpuMilli += parseCpuMilli(c.usage.cpu);
+				memBytes += parseMemBytes(c.usage.memory);
+			}
+			return {
+				namespace: it.metadata.namespace ?? '?',
+				name: it.metadata.name ?? '?',
+				cpuMilli,
+				memBytes
+			};
+		});
+		topPods = rows;
+	} catch {
+		metricsAvailable = false;
+	}
+
+	return { session, summary, cluster, topPods, metricsAvailable };
 };
+
+// Local CPU / memory parsers — same shape as the nodes page but
+// lifted here so the overview page doesn't need to import nodes/+page
+// internals. metrics-server emits CPU as nanocores ("139403626n") for
+// usage and memory in Ki/Mi/Gi.
+function parseCpuMilli(v: string | undefined): number {
+	if (!v) return 0;
+	if (v.endsWith('n')) return parseFloat(v) / 1_000_000;
+	if (v.endsWith('u') || v.endsWith('µ')) return parseFloat(v) / 1_000;
+	if (v.endsWith('m')) return parseFloat(v);
+	const n = parseFloat(v);
+	return Number.isFinite(n) ? n * 1000 : 0;
+}
+
+const MEM_UNITS: Record<string, number> = {
+	Ki: 1024,
+	Mi: 1024 ** 2,
+	Gi: 1024 ** 3,
+	Ti: 1024 ** 4,
+	K: 1000,
+	M: 1000 ** 2,
+	G: 1000 ** 3,
+	T: 1000 ** 4
+};
+function parseMemBytes(v: string | undefined): number {
+	if (!v) return 0;
+	const m = /^([\d.]+)([a-zA-Z]*)$/.exec(v);
+	if (!m) return 0;
+	const num = parseFloat(m[1]);
+	if (!Number.isFinite(num)) return 0;
+	const mult = m[2] ? (MEM_UNITS[m[2]] ?? 1) : 1;
+	return num * mult;
+}

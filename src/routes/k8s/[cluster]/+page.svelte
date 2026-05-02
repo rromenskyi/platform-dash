@@ -2,6 +2,25 @@
 	let { data } = $props();
 	const s = $derived(data.summary);
 	const c = $derived(data.cluster);
+
+	function fmtMilli(m: number): string {
+		if (m < 1) return `${m.toFixed(2)} m`;
+		if (m < 1000) return `${Math.round(m)} m`;
+		return `${(m / 1000).toFixed(2)} cores`;
+	}
+	function fmtBytes(b: number): string {
+		if (b < 1024) return `${b} B`;
+		if (b < 1024 ** 2) return `${(b / 1024).toFixed(1)} Ki`;
+		if (b < 1024 ** 3) return `${(b / 1024 ** 2).toFixed(1)} Mi`;
+		return `${(b / 1024 ** 3).toFixed(2)} Gi`;
+	}
+
+	const topByCpu = $derived(
+		[...data.topPods].sort((a, b) => b.cpuMilli - a.cpuMilli).slice(0, 5)
+	);
+	const topByMem = $derived(
+		[...data.topPods].sort((a, b) => b.memBytes - a.memBytes).slice(0, 5)
+	);
 </script>
 
 <h1>K8s Overview <span class="cluster-tag">{c}</span></h1>
@@ -38,6 +57,48 @@
 		<span class="hint">Installed</span>
 	</div>
 </section>
+
+{#if data.metricsAvailable && data.topPods.length > 0}
+	<section class="top">
+		<div class="top-card">
+			<h3>Top CPU</h3>
+			<table>
+				<thead><tr><th>Pod</th><th class="num">CPU</th></tr></thead>
+				<tbody>
+					{#each topByCpu as p}
+						<tr>
+							<td class="mono">
+								<a href="/k8s/{c}/pod/{p.namespace}/{p.name}">{p.namespace}/{p.name}</a>
+							</td>
+							<td class="num">{fmtMilli(p.cpuMilli)}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+		<div class="top-card">
+			<h3>Top memory</h3>
+			<table>
+				<thead><tr><th>Pod</th><th class="num">Mem</th></tr></thead>
+				<tbody>
+					{#each topByMem as p}
+						<tr>
+							<td class="mono">
+								<a href="/k8s/{c}/pod/{p.namespace}/{p.name}">{p.namespace}/{p.name}</a>
+							</td>
+							<td class="num">{fmtBytes(p.memBytes)}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	</section>
+{:else if !data.metricsAvailable}
+	<p class="muted small hint">
+		Top consumers panel hidden — install metrics-server (or grant the dashboard SA <code>get</code> on
+		<code>metrics.k8s.io/v1beta1</code>) to see it.
+	</p>
+{/if}
 
 <section class="grid">
 	<a class="card" href="/k8s/{c}/workloads">
@@ -203,4 +264,34 @@
 	.card.external h2 {
 		color: var(--accent);
 	}
+
+	.top {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: 1rem;
+		margin: 1rem 0 1.5rem;
+	}
+	.top-card {
+		padding: 0.85rem 1rem;
+		background: var(--bg-elev);
+		border: 1px solid var(--rule);
+		border-radius: 10px;
+	}
+	.top-card h3 {
+		margin: 0 0 0.5rem;
+		font-size: 0.78rem;
+		text-transform: uppercase;
+		letter-spacing: 0.07em;
+		color: var(--muted);
+	}
+	.top-card table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+	.top-card th { text-align: left; padding: 0.3rem 0.5rem; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--rule); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; }
+	.top-card th.num, .top-card td.num { text-align: right; }
+	.top-card td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--rule); color: var(--fg-soft); }
+	.top-card tr:last-child td { border-bottom: 0; }
+	.top-card td.mono { color: var(--fg); font-family: var(--font-mono); font-size: 0.85em; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.top-card td.mono a { color: var(--fg); }
+	.top-card td.mono a:hover { color: var(--accent); }
+	.small { font-size: 0.85rem; }
+	.hint { color: var(--muted); margin: 0.5rem 0 1.5rem; }
 </style>
