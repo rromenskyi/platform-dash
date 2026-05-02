@@ -18,6 +18,33 @@
 	let timestamps = $state(false);
 	let wrap = $state(false);
 	let grep = $state('');
+	let regex = $state(false);
+
+	const grepMatcher = $derived.by((): ((line: string) => boolean) | null => {
+		if (!grep) return null;
+		if (regex) {
+			try {
+				const re = new RegExp(grep, 'i');
+				return (l: string) => re.test(l);
+			} catch {
+				// Bad regex — filter to nothing rather than spam toasts
+				// every keystroke. Status pill below shows "regex error".
+				return () => false;
+			}
+		}
+		const needle = grep.toLowerCase();
+		return (l: string) => l.toLowerCase().includes(needle);
+	});
+
+	const grepError = $derived.by((): string | null => {
+		if (!regex || !grep) return null;
+		try {
+			new RegExp(grep, 'i');
+			return null;
+		} catch (err) {
+			return err instanceof Error ? err.message : String(err);
+		}
+	});
 
 	// Container quick-switch via [ / ]. Cycles through containers +
 	// initContainers in display order. Skipped while typing in inputs.
@@ -62,9 +89,7 @@
 	let es: EventSource | null = null;
 	let scheduledScroll = false;
 
-	const filtered = $derived(
-		grep ? lines.filter((l) => l.toLowerCase().includes(grep.toLowerCase())) : lines
-	);
+	const filtered = $derived(grepMatcher ? lines.filter(grepMatcher) : lines);
 
 	function buildUrl(): string {
 		const u = new URL(
@@ -202,7 +227,7 @@
 		{:else if streamState === 'reconnecting'}reconnecting…
 		{:else if streamState === 'closed'}{follow ? 'closed' : 'stopped'}
 		{:else}idle{/if}
-		<span class="muted small">· {filtered.length}{grep ? ` of ${lines.length}` : ''} lines</span>
+		<span class="muted small">· {filtered.length}{grep ? ` of ${lines.length}` : ''} lines{#if grepError} · regex error: {grepError}{/if}</span>
 	</div>
 </div>
 
@@ -250,7 +275,16 @@
 
 	<label class="field grow">
 		<span>grep</span>
-		<input type="search" bind:value={grep} placeholder="client-side filter…" />
+		<input
+			type="search"
+			class:err={grepError}
+			bind:value={grep}
+			placeholder={regex ? 'regex (case-insensitive)' : 'substring filter…'}
+		/>
+	</label>
+	<label class="field check" title="Treat grep as a regular expression">
+		<input type="checkbox" bind:checked={regex} />
+		<span>regex</span>
 	</label>
 
 	<div class="actions">
@@ -338,6 +372,7 @@
 	.field select:focus,
 	.field input:focus { outline: none; border-color: var(--accent); }
 	.field input[type='checkbox'] { accent-color: var(--accent); }
+	.field input.err { border-color: #fb7185; }
 
 	.actions {
 		display: inline-flex;

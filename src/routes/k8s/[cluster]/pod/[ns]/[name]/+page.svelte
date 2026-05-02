@@ -25,15 +25,40 @@
 	// Warning event. Shown in a banner above the fold so the operator
 	// doesn't have to scroll three sections to find what kubectl
 	// describe would tell them.
+	// Curated hints for common waiting / termination reasons. Maps the
+	// k8s reason string → one line of "what to check first" so the
+	// operator doesn't have to recall every cause off the top of their
+	// head. Conservative — only obvious one-liners that don't need
+	// cluster context to be useful.
+	const REASON_HINTS: Record<string, string> = {
+		ImagePullBackOff: 'check image tag, registry credentials (imagePullSecrets), or registry reachability',
+		ErrImagePull: 'image not found or registry unreachable — verify the tag and pull secret',
+		CrashLoopBackOff: 'check container logs for the crash reason; previous=true on the logs page shows the prior instance',
+		CreateContainerConfigError: 'usually a missing ConfigMap/Secret referenced via env or volume',
+		CreateContainerError: 'runtime refused to create the container — inspect the message',
+		InvalidImageName: 'image string is malformed (typo, missing tag, illegal chars)',
+		ContainerCannotRun: 'entrypoint failed before the container started — check command/args',
+		OOMKilled: 'container exceeded its memory limit — bump limits.memory or fix the leak',
+		Error: 'inspect lastTerminationReason and exit code below',
+		PodInitializing: 'init containers still running — wait or open their logs',
+		Pending: 'scheduler couldn\'t place the pod — check node affinity, taints, or resource fits',
+		FailedScheduling: 'no node satisfies the requested resources / nodeSelector / taints',
+		Unschedulable: 'no node satisfies the requested resources / nodeSelector / taints',
+		Evicted: 'node pressure evicted the pod — check node disk/memory and reschedule'
+	};
+
+	function reasonOf(state: string | undefined): string | undefined {
+		if (!state) return undefined;
+		const m = /\(([^)]+)\)/.exec(state);
+		return m?.[1];
+	}
+
 	const diagnosis = $derived.by(() => {
 		const phase = data.pod.phase;
-		// Container with the worst state wins.
 		const waiting = data.containers.find((c) => c.state.startsWith('waiting'))?.state;
 		const terminated = data.containers.find((c) => c.state.startsWith('terminated'))?.state;
 		const lastTerm = data.containers.find((c) => c.lastTerminationReason);
 		const warn = liveEventList.find((e) => e.type === 'Warning');
-		// "All ready" means every container reports ready=true; otherwise
-		// surface the first non-ready container by name.
 		const notReady = data.containers.filter((c) => !c.ready).map((c) => c.name);
 		const ok =
 			phase === 'Running' &&
@@ -42,11 +67,21 @@
 			data.containers.every((c) => c.restartCount < 3);
 		if (ok) return null;
 		const lines: string[] = [];
+		const reasons = new Set<string>();
 		if (phase !== 'Running' && phase !== 'Succeeded') {
 			lines.push(`phase: ${phase}`);
+			reasons.add(phase);
 		}
-		if (waiting) lines.push(waiting);
-		if (terminated) lines.push(terminated);
+		if (waiting) {
+			lines.push(waiting);
+			const r = reasonOf(waiting);
+			if (r) reasons.add(r);
+		}
+		if (terminated) {
+			lines.push(terminated);
+			const r = reasonOf(terminated);
+			if (r) reasons.add(r);
+		}
 		if (lastTerm?.lastTerminationReason) {
 			lines.push(
 				`last terminated: ${lastTerm.lastTerminationReason}` +
@@ -54,12 +89,23 @@
 						? ` (exit ${lastTerm.lastTerminationExitCode})`
 						: '')
 			);
+			reasons.add(lastTerm.lastTerminationReason);
 		}
 		if (notReady.length > 0 && phase === 'Running') {
 			lines.push(`not ready: ${notReady.join(', ')}`);
 		}
-		if (warn) lines.push(`warn (${warn.reason}): ${warn.message}`.slice(0, 180));
-		return lines.length ? lines : null;
+		if (warn) {
+			lines.push(`warn (${warn.reason}): ${warn.message}`.slice(0, 180));
+			reasons.add(warn.reason);
+		}
+		// One hint per matching reason. Stable order via the lines array's
+		// reason set.
+		const hints: string[] = [];
+		for (const r of reasons) {
+			const h = REASON_HINTS[r];
+			if (h) hints.push(`${r}: ${h}`);
+		}
+		return lines.length ? { lines, hints } : null;
 	});
 
 	const canWrite = $derived(!!page.data.canWrite);
@@ -271,10 +317,17 @@
 	<section class="diag">
 		<h2>Diagnosis</h2>
 		<ul>
-			{#each diagnosis as line}
+			{#each diagnosis.lines as line}
 				<li>{line}</li>
 			{/each}
 		</ul>
+		{#if diagnosis.hints.length > 0}
+			<ul class="hints">
+				{#each diagnosis.hints as h}
+					<li>{h}</li>
+				{/each}
+			</ul>
+		{/if}
 	</section>
 {/if}
 
@@ -774,6 +827,12 @@
 		font-size: 0.88rem;
 	}
 	.diag li { padding: 0.1rem 0; font-family: var(--font-mono); }
+	.diag ul.hints {
+		margin-top: 0.6rem;
+		padding-top: 0.5rem;
+		border-top: 1px dashed rgba(251, 113, 133, 0.4);
+	}
+	.diag ul.hints li { font-family: var(--font-sans); color: var(--fg-soft); font-size: 0.85rem; }
 
 	.kv {
 		display: grid;

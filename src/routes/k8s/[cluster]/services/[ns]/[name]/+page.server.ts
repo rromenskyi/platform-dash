@@ -19,6 +19,46 @@ export type EndpointAddr = {
 	ready: boolean;
 };
 
+export type ScopedEvent = {
+	type: string;
+	reason: string;
+	message: string;
+	count: number;
+	lastSeen?: string;
+};
+
+async function listScopedEvents(
+	cluster: string,
+	ns: string,
+	name: string,
+	kind: string
+): Promise<ScopedEvent[]> {
+	try {
+		const res = await time(`${cluster}/listNamespacedEvent`, () =>
+			core(cluster).listNamespacedEvent({
+				namespace: ns,
+				fieldSelector: `involvedObject.name=${name},involvedObject.kind=${kind}`
+			})
+		);
+		return res.items
+			.map((e) => ({
+				type: e.type ?? '?',
+				reason: e.reason ?? '?',
+				message: e.message ?? '',
+				count: e.count ?? 1,
+				lastSeen: e.lastTimestamp
+					? new Date(e.lastTimestamp).toISOString()
+					: e.eventTime
+						? new Date(e.eventTime).toISOString()
+						: undefined
+			}))
+			.sort((a, b) => (b.lastSeen ?? '').localeCompare(a.lastSeen ?? ''));
+	} catch (err) {
+		console.warn(`list events ${cluster}/${ns}/${kind}/${name} failed`, err);
+		return [];
+	}
+}
+
 export const load: PageServerLoad = async (event) => {
 	const { cluster, ns, name } = event.params;
 
@@ -117,6 +157,7 @@ export const load: PageServerLoad = async (event) => {
 		ports,
 		endpoints,
 		endpointsError,
+		events: await listScopedEvents(cluster, ns, name, 'Service'),
 		scopedAudit: auditScopedTo({ cluster, kind: 'Service', namespace: ns, name, limit: 20 })
 	};
 };
