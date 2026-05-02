@@ -18,6 +18,7 @@
 //   });
 //   ... bind:checked={live.live}, use {#each live.rows as r}
 
+import { untrack } from 'svelte';
 import { registerLive, unregisterLive } from './live-registry.svelte';
 
 export type LiveListInit<T> = {
@@ -105,9 +106,18 @@ export class LiveList<T> {
 	// Drive open/close from outside. Page wires this into a $effect
 	// that also tracks any URL params the watch URL depends on so a
 	// ns / cluster switch reconnects automatically.
+	//
+	// `this.live` is read tracked so the effect re-runs on toggle.
+	// Open/close are wrapped in `untrack` because `#open` reads
+	// `this.rows` to seed the keyed map — without untrack the effect
+	// would track `rows` too, and every SSE delta would tear down and
+	// reopen the stream (breaking filters, counters, and the toggle UI).
 	sync() {
-		if (this.live) this.#open();
-		else this.#close();
+		const want = this.live;
+		untrack(() => {
+			if (want) this.#open();
+			else this.#close();
+		});
 	}
 
 	destroy() {

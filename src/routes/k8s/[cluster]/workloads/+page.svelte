@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
 	import { invalidateAll } from '$app/navigation';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import type { WorkloadRow } from './+page.server';
 	import { page } from '$app/state';
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
@@ -31,11 +31,14 @@
 
 	$effect(() => {
 		// Reset local view whenever the loader fires (cluster/ns change
-		// or invalidateAll). Live mode rebuilds from this seed.
-		localRows = data.rows;
-		if (live) {
-			seedLiveMap();
-		}
+		// or invalidateAll). Live mode rebuilds from this seed. The
+		// body is untracked so reading `localRows` inside seedLiveMap
+		// doesn't re-fire this effect when SSE deltas mutate localRows.
+		const rows = data.rows;
+		untrack(() => {
+			localRows = rows;
+			if (live) seedLiveMap();
+		});
 	});
 
 	function seedLiveMap() {
@@ -103,12 +106,17 @@
 
 	$effect(() => {
 		// Re-runs when `live` flips OR when the URL ?ns= changes —
-		// reading page.url here makes Svelte track it. We close any
-		// existing stream first so the new one binds to the current ns.
+		// reading page.url here makes Svelte track it. Open/close are
+		// untracked because `startLive` reads `localRows` to seed the
+		// map; without untrack the effect would track `localRows` too
+		// and every SSE delta would close + reopen the stream.
 		const _ns = page.url.searchParams.get('ns'); // tracked dependency
 		void _ns;
-		stopLive();
-		if (live) startLive();
+		const isLive = live;
+		untrack(() => {
+			stopLive();
+			if (isLive) startLive();
+		});
 	});
 
 	onDestroy(stopLive);
@@ -122,7 +130,7 @@
 	// > running > succeeded), then restart count desc, then ns/name.
 	// Defaults to chaos+desc so the first thing the operator sees on
 	// page load is whatever's blowing up.
-	type SortKey = 'chaos' | 'namespace' | 'kind' | 'name' | 'ready' | 'status' | 'restarts' | 'age';
+	type SortKey = 'chaos' | 'namespace' | 'kind' | 'name' | 'ready' | 'status' | 'restarts' | 'node' | 'age';
 	type SortDir = 'asc' | 'desc';
 	let sortKey = $state<SortKey>('chaos');
 	let sortDir = $state<SortDir>('desc');
@@ -171,6 +179,17 @@
 				return statusWeight(a.status) - statusWeight(b.status) || a.status.localeCompare(b.status);
 			case 'restarts':
 				return a.restarts - b.restarts;
+			case 'node': {
+				// Group by node, then ns/name within. Pods without a node
+				// (e.g. Pending / unscheduled, or Deployment/StatefulSet
+				// rollups) sink to the bottom regardless of sort dir so
+				// scheduled rows stay readable.
+				const an = a.node ?? '';
+				const bn = b.node ?? '';
+				if (!an && bn) return 1;
+				if (an && !bn) return -1;
+				return an.localeCompare(bn) || a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name);
+			}
 			case 'age':
 				// Older creationTimestamp = older row; "asc" should mean oldest first
 				return ageMs(a) - ageMs(b);
@@ -433,6 +452,7 @@
 			<th class="sortable" onclick={() => setSort('ready')}>Ready{sortIndicator('ready')}</th>
 			<th class="sortable" onclick={() => setSort('status')}>Status{sortIndicator('status')}</th>
 			<th class="sortable" onclick={() => setSort('restarts')}>Restarts{sortIndicator('restarts')}</th>
+			<th class="sortable" onclick={() => setSort('node')}>Node{sortIndicator('node')}</th>
 			<th class="sortable" onclick={() => setSort('age')}>Age{sortIndicator('age')}</th>
 			<th>Actions</th>
 		</tr>
@@ -461,6 +481,7 @@
 				<td>{r.ready}</td>
 				<td><span class="status status-{r.status.toLowerCase()}">{r.status}</span></td>
 				<td>{r.restarts || ''}</td>
+				<td class="node">{#if r.node}<a href="/k8s/{data.cluster}/nodes#{r.node}">{r.node}</a>{:else}<span class="muted">—</span>{/if}</td>
 				<td>{age(r.creationTimestamp)}</td>
 				{#if canWrite}
 					<td class="actions">

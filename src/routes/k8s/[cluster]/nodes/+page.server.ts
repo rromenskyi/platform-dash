@@ -38,7 +38,12 @@ export type NodeRow = {
 // then re-render as the same units the node reports.
 function parseCpu(v: string | undefined): number {
 	if (!v) return 0;
-	if (v.endsWith('m')) return parseInt(v, 10);
+	// metrics-server reports node/pod usage in nanocores ("139403626n");
+	// requests come in cores ("1") or millicores ("100m"). Normalise all
+	// to millicores so the rest of the page sums + renders one unit.
+	if (v.endsWith('n')) return parseFloat(v) / 1_000_000;
+	if (v.endsWith('u') || v.endsWith('µ')) return parseFloat(v) / 1_000;
+	if (v.endsWith('m')) return parseFloat(v);
 	const n = parseFloat(v);
 	return Number.isFinite(n) ? n * 1000 : 0;
 }

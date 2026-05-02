@@ -25,24 +25,30 @@ export type RedisStats = {
 	keyspace: Array<{ db: string; keys: number; expires: number }>;
 };
 
-const clients = new Map<string, Redis>();
+type CachedClient = { uri: string; client: Redis };
+const clients = new Map<string, CachedClient>();
 
 function getClient(targetName: string, uri: string): Redis {
 	const cached = clients.get(targetName);
-	if (cached) return cached;
+	// Invalidate when the URI changes — the platform's applier rotates
+	// Redis ACL passwords on each apply, refreshing the Secret behind
+	// `platform-redis-dashboard`. ioredis bakes the URL into the client
+	// at construction; a cached client outlives a rotation and fails
+	// reconnect with WRONGPASS. Drop + rebuild whenever the resolved
+	// URI no longer matches what we cached.
+	if (cached && cached.uri === uri) return cached.client;
+	if (cached) {
+		cached.client.disconnect();
+	}
 	const c = new Redis(uri, {
 		maxRetriesPerRequest: 1,
 		connectTimeout: 5_000,
-		// We poll periodically; lazyConnect=false (default) is fine.
-		// reconnectOnError: keep default
 		enableReadyCheck: false
 	});
 	c.on('error', (err) => {
-		// ioredis emits errors loudly; one log per error class would
-		// drown the console under network blips, so we keep this short.
 		console.warn(`redis [${targetName}] error: ${err.message}`);
 	});
-	clients.set(targetName, c);
+	clients.set(targetName, { uri, client: c });
 	return c;
 }
 
