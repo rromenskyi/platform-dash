@@ -7,6 +7,7 @@
 	import { toast } from '$lib/toast.svelte';
 	import LiveDot from '$lib/LiveDot.svelte';
 	import type { LiveStreamState } from '$lib/live-list.svelte';
+	import { confirm as confirmDialog } from '$lib/confirm.svelte';
 
 	let { data } = $props();
 
@@ -175,12 +176,22 @@
 	async function onRestartOwner() {
 		const o = ownerControllable;
 		if (!o) return;
-		if (!confirm(`Rollout restart ${o.kind} ${data.pod.namespace}/${o.name}?`)) return;
+		const proceed = await confirmDialog({
+			title: `Rollout restart ${o.kind}?`,
+			body: `${data.pod.namespace}/${o.name}\n\nRolls a new revision; pods are recreated one by one.`,
+			confirm: 'Restart'
+		});
+		if (!proceed) return;
 		await postAction('restart', { kind: o.kind, namespace: data.pod.namespace, name: o.name });
 	}
 	async function onDeletePod() {
-		if (!confirm(`Delete pod ${data.pod.namespace}/${data.pod.name}?\n\nController will respawn if it has one.`))
-			return;
+		const proceed = await confirmDialog({
+			title: 'Delete pod?',
+			body: `${data.pod.namespace}/${data.pod.name}\n\nController will respawn if it has one.`,
+			confirm: 'Delete',
+			danger: true
+		});
+		if (!proceed) return;
 		const ok = await postAction('pod-delete', {
 			namespace: data.pod.namespace,
 			name: data.pod.name

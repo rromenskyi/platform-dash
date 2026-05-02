@@ -6,6 +6,7 @@
 	import { beforeNavigate } from '$app/navigation';
 	import type { SerializableNode } from '$lib/resource';
 	import Toasts from '$lib/Toasts.svelte';
+	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import SavedViews from '$lib/SavedViews.svelte';
 	import Shortcuts from '$lib/Shortcuts.svelte';
 	import QuickSearch from '$lib/QuickSearch.svelte';
@@ -268,6 +269,7 @@
 </div>
 
 <Toasts />
+<ConfirmDialog />
 
 {#if session?.user && canRead}
 	<Shortcuts {defaultCluster} />
