@@ -14,6 +14,13 @@ export type WorkloadRow = {
 	// Pods only — Deployment / StatefulSet rows roll up multiple pods,
 	// no single node makes sense at that level.
 	node?: string;
+	// First container's image. For multi-container pods this is just
+	// the first; full image list lives on the pod detail page. For
+	// Deployment / StatefulSet rows we pull from spec.template.
+	image?: string;
+	// Set when any container is in ImagePullBackOff / ErrImagePull —
+	// surfaces inline on the workloads table without a click-through.
+	imagePullError?: boolean;
 };
 
 export const load: PageServerLoad = async (event) => {
@@ -48,6 +55,11 @@ export const load: PageServerLoad = async (event) => {
 					const ready = containers.filter((c) => c.ready).length;
 					const total = containers.length || (p.spec?.containers?.length ?? 0);
 					const restarts = containers.reduce((acc, c) => acc + (c.restartCount ?? 0), 0);
+					const image = p.spec?.containers?.[0]?.image;
+					const imagePullError = containers.some((c) => {
+						const r = c.state?.waiting?.reason ?? '';
+						return r === 'ImagePullBackOff' || r === 'ErrImagePull';
+					});
 					rows.push({
 						namespace: p.metadata?.namespace ?? '?',
 						name: p.metadata?.name ?? '?',
@@ -58,7 +70,9 @@ export const load: PageServerLoad = async (event) => {
 						creationTimestamp: p.metadata?.creationTimestamp
 							? new Date(p.metadata.creationTimestamp).toISOString()
 							: undefined,
-						node: p.spec?.nodeName
+						node: p.spec?.nodeName,
+						image,
+						imagePullError
 					});
 				}
 			} catch (err) {
@@ -87,7 +101,8 @@ export const load: PageServerLoad = async (event) => {
 						restarts: 0,
 						creationTimestamp: d.metadata?.creationTimestamp
 							? new Date(d.metadata.creationTimestamp).toISOString()
-							: undefined
+							: undefined,
+						image: d.spec?.template?.spec?.containers?.[0]?.image
 					});
 				}
 			} catch (err) {
@@ -116,7 +131,8 @@ export const load: PageServerLoad = async (event) => {
 						restarts: 0,
 						creationTimestamp: s.metadata?.creationTimestamp
 							? new Date(s.metadata.creationTimestamp).toISOString()
-							: undefined
+							: undefined,
+						image: s.spec?.template?.spec?.containers?.[0]?.image
 					});
 				}
 			} catch (err) {

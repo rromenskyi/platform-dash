@@ -28,12 +28,21 @@ type ItemMin = {
 
 function podRow(p: ItemMin) {
 	const containers =
-		((p.status as { containerStatuses?: Array<{ ready?: boolean; restartCount?: number }> })
-			.containerStatuses ?? []);
+		((p.status as {
+			containerStatuses?: Array<{
+				ready?: boolean;
+				restartCount?: number;
+				state?: { waiting?: { reason?: string } };
+			}>;
+		}).containerStatuses ?? []);
 	const ready = containers.filter((c) => c.ready).length;
-	const total =
-		containers.length || ((p.spec as { containers?: unknown[] })?.containers?.length ?? 0);
+	const specContainers = (p.spec as { containers?: Array<{ image?: string }> })?.containers ?? [];
+	const total = containers.length || specContainers.length;
 	const restarts = containers.reduce((acc, c) => acc + (c.restartCount ?? 0), 0);
+	const imagePullError = containers.some((c) => {
+		const r = c.state?.waiting?.reason ?? '';
+		return r === 'ImagePullBackOff' || r === 'ErrImagePull';
+	});
 	return {
 		namespace: p.metadata?.namespace ?? '?',
 		name: p.metadata?.name ?? '?',
@@ -44,13 +53,17 @@ function podRow(p: ItemMin) {
 		creationTimestamp: p.metadata?.creationTimestamp
 			? new Date(p.metadata.creationTimestamp).toISOString()
 			: undefined,
-		node: (p.spec as { nodeName?: string })?.nodeName
+		node: (p.spec as { nodeName?: string })?.nodeName,
+		image: specContainers[0]?.image,
+		imagePullError
 	};
 }
 
 function deployRow(d: ItemMin) {
 	const total = (d.spec as { replicas?: number })?.replicas ?? 0;
 	const ready = (d.status as { readyReplicas?: number })?.readyReplicas ?? 0;
+	const image = (d.spec as { template?: { spec?: { containers?: Array<{ image?: string }> } } })
+		?.template?.spec?.containers?.[0]?.image;
 	return {
 		namespace: d.metadata?.namespace ?? '?',
 		name: d.metadata?.name ?? '?',
@@ -61,13 +74,17 @@ function deployRow(d: ItemMin) {
 		creationTimestamp: d.metadata?.creationTimestamp
 			? new Date(d.metadata.creationTimestamp).toISOString()
 			: undefined,
-		node: undefined as string | undefined
+		node: undefined as string | undefined,
+		image,
+		imagePullError: false as boolean
 	};
 }
 
 function ssRow(s: ItemMin) {
 	const total = (s.spec as { replicas?: number })?.replicas ?? 0;
 	const ready = (s.status as { readyReplicas?: number })?.readyReplicas ?? 0;
+	const image = (s.spec as { template?: { spec?: { containers?: Array<{ image?: string }> } } })
+		?.template?.spec?.containers?.[0]?.image;
 	return {
 		namespace: s.metadata?.namespace ?? '?',
 		name: s.metadata?.name ?? '?',
@@ -78,7 +95,9 @@ function ssRow(s: ItemMin) {
 		creationTimestamp: s.metadata?.creationTimestamp
 			? new Date(s.metadata.creationTimestamp).toISOString()
 			: undefined,
-		node: undefined as string | undefined
+		node: undefined as string | undefined,
+		image,
+		imagePullError: false as boolean
 	};
 }
 

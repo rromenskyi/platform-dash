@@ -571,6 +571,7 @@
 			<th class="sortable" onclick={() => setSort('ready')}>Ready{sortIndicator('ready')}</th>
 			<th class="sortable" onclick={() => setSort('status')}>Status{sortIndicator('status')}</th>
 			<th class="sortable" onclick={() => setSort('restarts')}>Restarts{sortIndicator('restarts')}</th>
+			<th>Image</th>
 			<th class="sortable" onclick={() => setSort('node')}>Node{sortIndicator('node')}</th>
 			<th class="sortable" onclick={() => setSort('age')}>Age{sortIndicator('age')}</th>
 			<th>Actions</th>
@@ -600,6 +601,13 @@
 				<td>{r.ready}</td>
 				<td><span class="status status-{r.status.toLowerCase()}">{r.status}</span></td>
 				<td>{r.restarts || ''}</td>
+				<td class="image">
+					{#if r.image}
+						<span class="image-tag" class:bad={r.imagePullError} title={r.imagePullError ? 'ImagePullBackOff / ErrImagePull' : r.image}>{r.image}</span>
+					{:else}
+						<span class="muted">—</span>
+					{/if}
+				</td>
 				<td class="node">{#if r.node}<a href="/k8s/{data.cluster}/nodes#{r.node}">{r.node}</a>{:else}<span class="muted">—</span>{/if}</td>
 				<td>{age(r.creationTimestamp)}</td>
 				{#if canWrite}
@@ -786,6 +794,23 @@
 	}
 	.hint-item { display: inline-flex; align-items: center; gap: 0.35rem; }
 	.hint-sep { color: var(--muted); }
+
+	td.image { max-width: 280px; }
+	.image-tag {
+		display: inline-block;
+		font-family: var(--font-mono);
+		font-size: 0.78em;
+		padding: 0.1rem 0.45rem;
+		background: var(--bg-elev);
+		border: 1px solid var(--rule);
+		border-radius: 4px;
+		color: var(--fg);
+		max-width: 280px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.image-tag.bad { color: #fb7185; border-color: #fb7185; }
 	td {
 		padding: 0.55rem 0.75rem;
 		border-bottom: 1px solid var(--rule);

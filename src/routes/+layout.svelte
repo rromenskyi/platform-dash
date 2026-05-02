@@ -45,6 +45,28 @@
 			/* */
 		}
 	}
+
+	// Mobile sidebar drawer. Hidden by default on narrow viewports
+	// (CSS @media handles the visual); toggled by a hamburger in the
+	// topbar. Closes on any nav so the operator doesn't have to dismiss
+	// it manually.
+	let mobileSidebar = $state(false);
+	$effect(() => {
+		// Close drawer on pathname change.
+		void pathname;
+		mobileSidebar = false;
+	});
+	function onSidebarKey(e: KeyboardEvent) {
+		if (e.key === 'Escape' && mobileSidebar) {
+			e.preventDefault();
+			mobileSidebar = false;
+		}
+	}
+	$effect(() => {
+		if (!mobileSidebar) return;
+		window.addEventListener('keydown', onSidebarKey);
+		return () => window.removeEventListener('keydown', onSidebarKey);
+	});
 	let pathname = $derived(page.url.pathname);
 	let canRead = $derived(!!page.data.canRead);
 	let canWrite = $derived(!!page.data.canWrite);
@@ -131,6 +153,14 @@
 </svelte:head>
 
 <header class="topbar">
+	{#if session?.user && canRead}
+		<button
+			class="hamburger"
+			onclick={() => (mobileSidebar = !mobileSidebar)}
+			aria-label={mobileSidebar ? 'Close menu' : 'Open menu'}
+			title="Toggle sidebar"
+		>{mobileSidebar ? '×' : '☰'}</button>
+	{/if}
 	<a class="brand" href="/">platform</a>
 	<nav class="topnav">
 		{#if session?.user && canRead}
@@ -242,8 +272,15 @@
 {/snippet}
 
 <div class="layout">
+	{#if session?.user && canRead && mobileSidebar}
+		<button
+			class="sidebar-backdrop"
+			aria-label="Close sidebar"
+			onclick={() => (mobileSidebar = false)}
+		></button>
+	{/if}
 	{#if session?.user && canRead}
-		<aside class="sidebar">
+		<aside class="sidebar" class:mobile-open={mobileSidebar}>
 			{#if tree.length > 0}
 				<div class="group">
 					<h3>Resources</h3>
@@ -511,13 +548,55 @@
 		min-width: 0;
 	}
 
+	.hamburger {
+		display: none;
+		font: inherit;
+		font-size: 1.25rem;
+		line-height: 1;
+		padding: 0.2rem 0.55rem;
+		background: transparent;
+		border: 1px solid var(--rule);
+		color: var(--fg-soft);
+		border-radius: 6px;
+		cursor: pointer;
+		margin-right: 0.5rem;
+	}
+	.hamburger:hover { color: var(--fg); border-color: var(--muted); }
+
+	.sidebar-backdrop {
+		display: none;
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		z-index: 90;
+		border: 0;
+		padding: 0;
+		cursor: default;
+	}
+
 	@media (max-width: 720px) {
 		.layout {
 			grid-template-columns: 1fr;
 		}
+		.hamburger { display: inline-block; }
 		.sidebar {
-			border-right: 0;
-			border-bottom: 1px solid var(--rule);
+			position: fixed;
+			top: 64px;
+			left: 0;
+			bottom: 0;
+			width: min(280px, 80vw);
+			z-index: 91;
+			transform: translateX(-100%);
+			transition: transform var(--t-med) ease;
+			overflow-y: auto;
+			border-right: 1px solid var(--rule);
+			border-bottom: 0;
+			background: var(--bg);
 		}
+		.sidebar.mobile-open {
+			transform: translateX(0);
+			box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5);
+		}
+		.sidebar-backdrop { display: block; }
 	}
 </style>
