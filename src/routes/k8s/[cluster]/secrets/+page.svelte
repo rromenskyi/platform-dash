@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { createLiveList } from '$lib/live-list.svelte';
 	import type { SecretRow } from './+page.server';
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
 	import LiveDot from '$lib/LiveDot.svelte';
+	import { createKbdNav } from '$lib/kbd-nav.svelte';
 
 	let { data } = $props();
 	let q = $state('');
@@ -31,6 +32,15 @@
 	const filtered = $derived(
 		live.rows.filter((r) => !q || `${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase()))
 	);
+
+	const kbd = createKbdNav({
+		rowCount: () => filtered.length,
+		onEnter: (i) => {
+			const r = filtered[i];
+			if (r) goto(`/k8s/${data.cluster}/secrets/${r.namespace}/${r.name}`);
+		}
+	});
+	$effect(() => kbd.attach());
 </script>
 
 <div class="header">
@@ -53,8 +63,8 @@
 <table>
 	<thead><tr><th>Namespace</th><th>Name</th><th>Type</th><th>Keys</th><th>Age</th><th>Actions</th></tr></thead>
 	<tbody>
-		{#each filtered as r}
-			<tr>
+		{#each filtered as r, i}
+			<tr class:row-focused={i === kbd.focusedIdx}>
 				<td>{r.namespace}</td>
 				<td class="mono"><a href="/k8s/{data.cluster}/secrets/{r.namespace}/{r.name}">{r.name}</a></td>
 				<td><span class="type">{r.type}</span></td>
@@ -93,4 +103,5 @@
 	.keys { font-size: 0.78rem; }
 	.lbl { display: inline-block; padding: 0.05rem 0.4rem; margin-right: 0.25rem; background: var(--bg-elev); border-radius: 3px; color: var(--fg-soft); font-family: var(--font-mono); font-size: 0.85em; }
 	.error { padding: 0.75rem 1rem; background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; border-radius: 8px; color: #fb7185; }
+	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
 </style>

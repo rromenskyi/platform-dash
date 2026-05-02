@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
 	import { createLiveList } from '$lib/live-list.svelte';
 	import type { NamespaceRow } from './+page.server';
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
 	import LiveDot from '$lib/LiveDot.svelte';
+	import { createKbdNav } from '$lib/kbd-nav.svelte';
 
 	let { data } = $props();
 	let q = $state('');
@@ -24,6 +25,15 @@
 	const filtered = $derived(
 		live.rows.filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))
 	);
+
+	const kbd = createKbdNav({
+		rowCount: () => filtered.length,
+		onEnter: (i) => {
+			const r = filtered[i];
+			if (r) goto(`/k8s/${data.cluster}/workloads?ns=${encodeURIComponent(r.name)}`);
+		}
+	});
+	$effect(() => kbd.attach());
 </script>
 
 <div class="header">
@@ -54,8 +64,8 @@
 		</tr>
 	</thead>
 	<tbody>
-		{#each filtered as n}
-			<tr>
+		{#each filtered as n, i}
+			<tr class:row-focused={i === kbd.focusedIdx}>
 				<td class="mono"><a href="/k8s/{data.cluster}/workloads?ns={encodeURIComponent(n.name)}">{n.name}</a></td>
 				<td><span class="phase phase-{n.phase.toLowerCase()}">{n.phase}</span></td>
 				<td class="labels">
@@ -132,4 +142,5 @@
 	.act:hover { color: var(--accent); border-color: var(--accent); }
 
 	.error { padding: 0.75rem 1rem; background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; border-radius: 8px; color: #fb7185; }
+	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
 </style>

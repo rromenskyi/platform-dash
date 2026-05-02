@@ -10,15 +10,53 @@
 	import LiveDot from '$lib/LiveDot.svelte';
 	import type { LiveStreamState } from '$lib/live-list.svelte';
 	import { goto } from '$app/navigation';
+	import { createKbdNav } from '$lib/kbd-nav.svelte';
 
 	let { data } = $props();
 
+	// Persist filter + sort prefs across reloads. Keyed under a single
+	// JSON blob so we don't pollute localStorage with N keys, and so a
+	// future schema change can ship a single version bump.
+	const PREF_KEY = 'platform-dash:workloads:v1';
+	type Prefs = {
+		kindFilter: 'all' | 'Pod' | 'Deployment' | 'StatefulSet';
+		statusFilter: string;
+		sortKey: 'chaos' | 'namespace' | 'kind' | 'name' | 'ready' | 'status' | 'restarts' | 'node' | 'age';
+		sortDir: 'asc' | 'desc';
+	};
+	const initialPrefs: Prefs = (() => {
+		if (typeof localStorage === 'undefined') return { kindFilter: 'all', statusFilter: 'all', sortKey: 'chaos', sortDir: 'desc' };
+		try {
+			const raw = localStorage.getItem(PREF_KEY);
+			if (!raw) throw new Error();
+			const parsed = JSON.parse(raw) as Prefs;
+			return {
+				kindFilter: parsed.kindFilter ?? 'all',
+				statusFilter: parsed.statusFilter ?? 'all',
+				sortKey: parsed.sortKey ?? 'chaos',
+				sortDir: parsed.sortDir ?? 'desc'
+			};
+		} catch {
+			return { kindFilter: 'all', statusFilter: 'all', sortKey: 'chaos', sortDir: 'desc' };
+		}
+	})();
+
 	let q = $state('');
-	let kindFilter = $state<'all' | 'Pod' | 'Deployment' | 'StatefulSet'>('all');
-	let statusFilter = $state<string>('all');
+	let kindFilter = $state<Prefs['kindFilter']>(initialPrefs.kindFilter);
+	let statusFilter = $state<string>(initialPrefs.statusFilter);
 	let refreshing = $state(false);
 	let live = $state(false);
 	let streamState = $state<LiveStreamState>('idle');
+
+	$effect(() => {
+		if (typeof localStorage === 'undefined') return;
+		const prefs: Prefs = { kindFilter, statusFilter, sortKey, sortDir };
+		try {
+			localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
+		} catch {
+			/* quota exceeded / disabled — silent */
+		}
+	});
 
 	// canWrite comes from the layout (per-cluster aware). Hide action
 	// buttons entirely for sre / no-role rather than greying — fewer
@@ -131,72 +169,26 @@
 
 	onDestroy(stopLive);
 
-	// Keyboard nav. j/k move row focus; Enter drills in for Pods (the
-	// only kind with a detail page); x toggles bulk selection if the
-	// user has write; / focuses search; Esc clears selection / blurs.
-	// Skipped when the user is typing in an input — search box, prompt,
-	// etc. — so keystrokes go to the form.
-	let focusedIdx = $state(-1);
-	function onKey(e: KeyboardEvent) {
-		const t = e.target as HTMLElement | null;
-		if (
-			t instanceof HTMLInputElement ||
-			t instanceof HTMLTextAreaElement ||
-			t instanceof HTMLSelectElement ||
-			(t && t.isContentEditable)
-		) {
-			return;
+	const kbd = createKbdNav({
+		rowCount: () => filtered.length,
+		onEnter: (i) => {
+			const r = filtered[i];
+			if (r?.kind === 'Pod') goto(`/k8s/${data.cluster}/pod/${r.namespace}/${r.name}`);
+		},
+		onSelect: (i) => {
+			if (!canWrite) return;
+			const r = filtered[i];
+			if (r) toggleSelected(r);
+		},
+		onEscape: () => {
+			if (selected.size > 0) {
+				clearSelection();
+				return true;
+			}
+			return false;
 		}
-		if (e.metaKey || e.ctrlKey || e.altKey) return;
-		const max = filtered.length - 1;
-		switch (e.key) {
-			case 'j':
-				if (max < 0) return;
-				focusedIdx = focusedIdx < 0 ? 0 : Math.min(max, focusedIdx + 1);
-				e.preventDefault();
-				return;
-			case 'k':
-				if (max < 0) return;
-				focusedIdx = focusedIdx <= 0 ? 0 : focusedIdx - 1;
-				e.preventDefault();
-				return;
-			case 'Enter': {
-				const r = filtered[focusedIdx];
-				if (!r) return;
-				if (r.kind === 'Pod') {
-					goto(`/k8s/${data.cluster}/pod/${r.namespace}/${r.name}`);
-					e.preventDefault();
-				}
-				return;
-			}
-			case 'x': {
-				if (!canWrite) return;
-				const r = filtered[focusedIdx];
-				if (!r) return;
-				toggleSelected(r);
-				e.preventDefault();
-				return;
-			}
-			case 'Escape':
-				if (selected.size > 0) {
-					clearSelection();
-					e.preventDefault();
-				}
-				return;
-			case '/': {
-				const search = document.querySelector<HTMLInputElement>('input.search');
-				if (search) {
-					search.focus();
-					e.preventDefault();
-				}
-				return;
-			}
-		}
-	}
-	$effect(() => {
-		window.addEventListener('keydown', onKey);
-		return () => window.removeEventListener('keydown', onKey);
 	});
+	$effect(() => kbd.attach());
 
 	const distinctStatuses = $derived(
 		Array.from(new Set(localRows.map((r) => r.status))).sort()
@@ -207,10 +199,10 @@
 	// > running > succeeded), then restart count desc, then ns/name.
 	// Defaults to chaos+desc so the first thing the operator sees on
 	// page load is whatever's blowing up.
-	type SortKey = 'chaos' | 'namespace' | 'kind' | 'name' | 'ready' | 'status' | 'restarts' | 'node' | 'age';
-	type SortDir = 'asc' | 'desc';
-	let sortKey = $state<SortKey>('chaos');
-	let sortDir = $state<SortDir>('desc');
+	type SortKey = Prefs['sortKey'];
+	type SortDir = Prefs['sortDir'];
+	let sortKey = $state<SortKey>(initialPrefs.sortKey);
+	let sortDir = $state<SortDir>(initialPrefs.sortDir);
 
 	function statusWeight(s: string): number {
 		const k = s.toLowerCase();
@@ -562,7 +554,7 @@
 	</thead>
 	<tbody>
 		{#each filtered as r, i}
-			<tr class:row-selected={isSelected(r)} class:row-focused={i === focusedIdx}>
+			<tr class:row-selected={isSelected(r)} class:row-focused={i === kbd.focusedIdx}>
 				{#if canWrite}
 					<td class="check">
 						<input

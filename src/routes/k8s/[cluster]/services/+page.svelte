@@ -7,6 +7,7 @@
 	import type { SvcRow } from './+page.server';
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
 	import LiveDot from '$lib/LiveDot.svelte';
+	import { createKbdNav } from '$lib/kbd-nav.svelte';
 
 	let { data } = $props();
 	let q = $state('');
@@ -36,6 +37,9 @@
 			return true;
 		})
 	);
+
+	const kbd = createKbdNav({ rowCount: () => filtered.length });
+	$effect(() => kbd.attach());
 </script>
 
 <div class="header">
@@ -63,8 +67,8 @@
 <table>
 	<thead><tr><th>Namespace</th><th>Name</th><th>Type</th><th>ClusterIP</th><th>External</th><th>Ports</th><th>Age</th><th>Actions</th></tr></thead>
 	<tbody>
-		{#each filtered as r}
-			<tr>
+		{#each filtered as r, i}
+			<tr class:row-focused={i === kbd.focusedIdx}>
 				<td>{r.namespace}</td>
 				<td class="mono">{r.name}</td>
 				<td><span class="type type-{r.type.toLowerCase()}">{r.type}</span></td>
@@ -106,4 +110,5 @@
 	.type-loadbalancer { color: #6ee7b7; }
 	.type-externalname { color: #a5b4fc; }
 	.error { padding: 0.75rem 1rem; background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; border-radius: 8px; color: #fb7185; }
+	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
 </style>
