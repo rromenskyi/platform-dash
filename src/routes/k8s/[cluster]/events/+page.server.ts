@@ -23,22 +23,6 @@ export const load: PageServerLoad = async (event) => {
 
 	const ns = event.url.searchParams.get('ns') || '';
 
-	// Namespace list for the dropdown — best-effort. SRE without
-	// cluster-wide list rights still gets the events page; the
-	// dropdown just shows whatever namespace they're already in.
-	let nsList: string[] = [];
-	try {
-		const nsRes = await time(`${cluster}/listNamespace`, () =>
-			core(cluster).listNamespace()
-		);
-		nsList = nsRes.items
-			.map((n) => n.metadata?.name)
-			.filter((n): n is string => !!n)
-			.sort();
-	} catch {
-		/* silent — surfaced via the events list error if relevant */
-	}
-
 	let rows: EventRow[] = [];
 	let error: string | null = null;
 	try {
@@ -74,5 +58,5 @@ export const load: PageServerLoad = async (event) => {
 		error = err instanceof Error ? err.message : String(err);
 	}
 
-	return { cluster, rows, error, namespaces: nsList, currentNs: ns };
+	return { cluster, rows, error };
 };
