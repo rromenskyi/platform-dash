@@ -2,6 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import LiveDot from '$lib/LiveDot.svelte';
 	import type { LiveStreamState } from '$lib/live-list.svelte';
+	import { toast } from '$lib/toast.svelte';
 
 	let { data } = $props();
 
@@ -127,6 +128,19 @@
 		URL.revokeObjectURL(a.href);
 	}
 
+	async function copyVisible() {
+		// Copies whatever the operator is actually looking at (filtered
+		// by grep) so they can paste a focused slice into a ticket /
+		// chat without exporting the whole log.
+		const text = filtered.join('\n') + '\n';
+		try {
+			await navigator.clipboard.writeText(text);
+			toast.show(`copied ${filtered.length} line${filtered.length === 1 ? '' : 's'}`);
+		} catch (err) {
+			toast.show(`copy failed: ${err instanceof Error ? err.message : String(err)}`, 'err');
+		}
+	}
+
 	$effect(() => {
 		// Auto-open when key params change: container, follow, previous,
 		// timestamps, tailLines. grep is client-only — no reconnect.
@@ -202,6 +216,7 @@
 
 	<div class="actions">
 		<button class="ghost" onclick={clearLines} disabled={lines.length === 0} title="Clear buffer">clear</button>
+		<button class="ghost" onclick={copyVisible} disabled={filtered.length === 0} title="Copy visible (filtered) lines to clipboard">copy</button>
 		<button class="ghost" onclick={downloadAll} disabled={lines.length === 0} title="Download as .log">save</button>
 	</div>
 </div>
