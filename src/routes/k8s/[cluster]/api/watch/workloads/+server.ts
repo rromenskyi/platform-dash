@@ -43,7 +43,8 @@ function podRow(p: ItemMin) {
 		restarts,
 		creationTimestamp: p.metadata?.creationTimestamp
 			? new Date(p.metadata.creationTimestamp).toISOString()
-			: undefined
+			: undefined,
+		node: (p.spec as { nodeName?: string })?.nodeName
 	};
 }
 
@@ -59,7 +60,8 @@ function deployRow(d: ItemMin) {
 		restarts: 0,
 		creationTimestamp: d.metadata?.creationTimestamp
 			? new Date(d.metadata.creationTimestamp).toISOString()
-			: undefined
+			: undefined,
+		node: undefined as string | undefined
 	};
 }
 
@@ -75,7 +77,8 @@ function ssRow(s: ItemMin) {
 		restarts: 0,
 		creationTimestamp: s.metadata?.creationTimestamp
 			? new Date(s.metadata.creationTimestamp).toISOString()
-			: undefined
+			: undefined,
+		node: undefined as string | undefined
 	};
 }
 

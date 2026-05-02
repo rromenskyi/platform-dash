@@ -11,6 +11,9 @@ export type WorkloadRow = {
 	status: string;
 	restarts: number;
 	creationTimestamp?: string;
+	// Pods only — Deployment / StatefulSet rows roll up multiple pods,
+	// no single node makes sense at that level.
+	node?: string;
 };
 
 export const load: PageServerLoad = async (event) => {
@@ -54,7 +57,8 @@ export const load: PageServerLoad = async (event) => {
 						restarts,
 						creationTimestamp: p.metadata?.creationTimestamp
 							? new Date(p.metadata.creationTimestamp).toISOString()
-							: undefined
+							: undefined,
+						node: p.spec?.nodeName
 					});
 				}
 			} catch (err) {
