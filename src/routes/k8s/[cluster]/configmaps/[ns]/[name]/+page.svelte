@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { toast } from '$lib/toast.svelte';
 	import { lineDiff, diffStats } from '$lib/line-diff';
+	import { createKbdNav } from '$lib/kbd-nav.svelte';
 
 	let { data } = $props();
 	const entries = $derived(Object.entries(data.data));
@@ -20,6 +21,23 @@
 	const yaml = $derived(data.object ? toYaml(data.object, { sortMapEntries: false }) : '');
 	const json = $derived(data.object ? JSON.stringify(data.object, null, 2) : '');
 	const body = $derived(format === 'yaml' ? yaml : json);
+
+	// j/k focus + Enter copy on the per-key value cards. Skipped while
+	// the editor textarea is open since j/k are obviously typed there.
+	const kbd = createKbdNav({
+		rowCount: () => (editing ? 0 : entries.length),
+		onEnter: async (i) => {
+			const e = entries[i];
+			if (!e) return;
+			try {
+				await navigator.clipboard.writeText(e[1]);
+				toast.show(`copied "${e[0]}"`);
+			} catch (err) {
+				toast.show(`copy failed: ${err instanceof Error ? err.message : String(err)}`, 'err');
+			}
+		}
+	});
+	$effect(() => kbd.attach());
 
 	const diffOps = $derived.by(() => {
 		if (!editing || !showDiff) return [];
@@ -106,8 +124,8 @@
 		<p class="muted">No data.</p>
 	{/if}
 
-	{#each entries as [k, v]}
-		<section class="kv-card">
+	{#each entries as [k, v], i}
+		<section class="kv-card" class:focused={i === kbd.focusedIdx}>
 			<h3>{k}</h3>
 			<pre>{v}</pre>
 		</section>
@@ -162,6 +180,7 @@
 	.ghost:disabled { cursor: wait; opacity: 0.5; }
 
 	.kv-card { margin-top: 1rem; padding: 0.85rem 1rem; border: 1px solid var(--rule); border-radius: 8px; background: var(--bg-elev); }
+	.kv-card.focused { box-shadow: inset 2px 0 0 var(--accent); }
 	.kv-card h3 { margin: 0 0 0.5rem; font-size: 0.85rem; font-family: var(--font-mono); color: var(--accent); }
 	.kv-card pre { margin: 0; padding: 0.6rem 0.8rem; background: #0a0c10; color: #e2e8f0; border-radius: 6px; font-family: var(--font-mono); font-size: 0.8rem; overflow: auto; max-height: 400px; white-space: pre-wrap; word-break: break-all; }
 

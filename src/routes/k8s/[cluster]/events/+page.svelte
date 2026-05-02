@@ -13,9 +13,39 @@
 
 	let { data } = $props();
 
-	let q = $state('');
-	let typeFilter = $state<'all' | 'Normal' | 'Warning'>('all');
-	let rangeFilter = $state<'all' | '5m' | '1h' | '24h'>('all');
+	const PREF_KEY = 'platform-dash:events:v1';
+	type Prefs = {
+		q: string;
+		typeFilter: 'all' | 'Normal' | 'Warning';
+		rangeFilter: 'all' | '5m' | '1h' | '24h';
+	};
+	const initial: Prefs = (() => {
+		const def: Prefs = { q: '', typeFilter: 'all', rangeFilter: 'all' };
+		if (typeof localStorage === 'undefined') return def;
+		try {
+			const raw = localStorage.getItem(PREF_KEY);
+			if (!raw) return def;
+			const p = JSON.parse(raw) as Partial<Prefs>;
+			return {
+				q: p.q ?? def.q,
+				typeFilter: p.typeFilter ?? def.typeFilter,
+				rangeFilter: p.rangeFilter ?? def.rangeFilter
+			};
+		} catch {
+			return def;
+		}
+	})();
+	let q = $state(initial.q);
+	let typeFilter = $state<Prefs['typeFilter']>(initial.typeFilter);
+	let rangeFilter = $state<Prefs['rangeFilter']>(initial.rangeFilter);
+	$effect(() => {
+		if (typeof localStorage === 'undefined') return;
+		try {
+			localStorage.setItem(PREF_KEY, JSON.stringify({ q, typeFilter, rangeFilter } satisfies Prefs));
+		} catch {
+			/* */
+		}
+	});
 	let live = $state(false);
 	let streamState = $state<LiveStreamState>('idle');
 	let rows = $state<EventRow[]>([]);

@@ -16,7 +16,41 @@
 	let follow = $state(true);
 	let previous = $state(false);
 	let timestamps = $state(false);
+	let wrap = $state(false);
 	let grep = $state('');
+
+	// Container quick-switch via [ / ]. Cycles through containers +
+	// initContainers in display order. Skipped while typing in inputs.
+	const allContainers = $derived([...data.containers, ...data.initContainers]);
+	function shiftContainer(delta: number) {
+		if (allContainers.length === 0) return;
+		const idx = allContainers.indexOf(container);
+		const next = (idx < 0 ? 0 : (idx + delta + allContainers.length) % allContainers.length);
+		container = allContainers[next];
+	}
+	function onPageKey(e: KeyboardEvent) {
+		const t = e.target;
+		if (
+			t instanceof HTMLInputElement ||
+			t instanceof HTMLTextAreaElement ||
+			t instanceof HTMLSelectElement
+		) return;
+		if (e.metaKey || e.ctrlKey || e.altKey) return;
+		if (e.key === ']') {
+			shiftContainer(1);
+			e.preventDefault();
+		} else if (e.key === '[') {
+			shiftContainer(-1);
+			e.preventDefault();
+		} else if (e.key === 'w') {
+			wrap = !wrap;
+			e.preventDefault();
+		}
+	}
+	$effect(() => {
+		window.addEventListener('keydown', onPageKey);
+		return () => window.removeEventListener('keydown', onPageKey);
+	});
 
 	let lines = $state<string[]>([]);
 	let connected = $state(false);
@@ -209,6 +243,11 @@
 		<span>timestamps</span>
 	</label>
 
+	<label class="field check" title="Wrap long lines (w)">
+		<input type="checkbox" bind:checked={wrap} />
+		<span>wrap</span>
+	</label>
+
 	<label class="field grow">
 		<span>grep</span>
 		<input type="search" bind:value={grep} placeholder="client-side filter…" />
@@ -225,7 +264,7 @@
 	<p class="error">{errMsg}</p>
 {/if}
 
-<div class="logbox" bind:this={logBox} onscroll={onScroll}>
+<div class="logbox" class:wrap bind:this={logBox} onscroll={onScroll}>
 	{#each filtered as line, i (i)}
 		<div class="line">{line || ' '}</div>
 	{/each}
@@ -332,6 +371,9 @@
 		overflow: auto;
 	}
 	.line {
+		white-space: pre;
+	}
+	.logbox.wrap .line {
 		white-space: pre-wrap;
 		word-break: break-all;
 	}

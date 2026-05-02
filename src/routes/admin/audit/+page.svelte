@@ -5,13 +5,61 @@
 
 	let { data } = $props();
 
+	const PREF_KEY = 'platform-dash:audit:v1';
+	type Prefs = {
+		q: string;
+		outcomeFilter: 'all' | 'ok' | 'denied' | 'error';
+		clusterFilter: string;
+		actionFilter: string;
+		rangeFilter: 'all' | '5m' | '1h' | '24h';
+		livetail: boolean;
+	};
+	const initial: Prefs = (() => {
+		const def: Prefs = {
+			q: '',
+			outcomeFilter: 'all',
+			clusterFilter: 'all',
+			actionFilter: 'all',
+			rangeFilter: 'all',
+			livetail: true
+		};
+		if (typeof localStorage === 'undefined') return def;
+		try {
+			const raw = localStorage.getItem(PREF_KEY);
+			if (!raw) return def;
+			const p = JSON.parse(raw) as Partial<Prefs>;
+			return {
+				q: p.q ?? def.q,
+				outcomeFilter: p.outcomeFilter ?? def.outcomeFilter,
+				clusterFilter: p.clusterFilter ?? def.clusterFilter,
+				actionFilter: p.actionFilter ?? def.actionFilter,
+				rangeFilter: p.rangeFilter ?? def.rangeFilter,
+				livetail: p.livetail ?? def.livetail
+			};
+		} catch {
+			return def;
+		}
+	})();
+
 	let refreshing = $state(false);
-	let q = $state('');
-	let outcomeFilter = $state<'all' | 'ok' | 'denied' | 'error'>('all');
-	let clusterFilter = $state<string>('all');
-	let actionFilter = $state<string>('all');
-	let rangeFilter = $state<'all' | '5m' | '1h' | '24h'>('all');
-	let livetail = $state(true);
+	let q = $state(initial.q);
+	let outcomeFilter = $state<Prefs['outcomeFilter']>(initial.outcomeFilter);
+	let clusterFilter = $state<string>(initial.clusterFilter);
+	let actionFilter = $state<string>(initial.actionFilter);
+	let rangeFilter = $state<Prefs['rangeFilter']>(initial.rangeFilter);
+	let livetail = $state(initial.livetail);
+
+	$effect(() => {
+		if (typeof localStorage === 'undefined') return;
+		try {
+			localStorage.setItem(
+				PREF_KEY,
+				JSON.stringify({ q, outcomeFilter, clusterFilter, actionFilter, rangeFilter, livetail } satisfies Prefs)
+			);
+		} catch {
+			/* */
+		}
+	});
 
 	// Tick `now` every few seconds so range filters slide forward
 	// without needing a manual refresh; the table reactivity catches
