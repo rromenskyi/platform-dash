@@ -3,12 +3,13 @@ import type { PageServerLoad } from './$types';
 import { requireRead } from '$lib/authz';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
-import { record } from '$lib/audit.server';
 
-// Secret values are returned base64-encoded by the API. We decode
-// server-side so the UI doesn't have to ship a decoder, but log a
-// view event in the audit stream — even sre-level reads of secret
-// data are worth a record.
+// Loader returns ONLY metadata + key list + per-key value length.
+// Decoded plaintext is never serialised into the page payload — it
+// would land in the HTML response for every viewer regardless of
+// whether they ever clicked "reveal". The UI fetches per-key
+// plaintext on demand via /api/secret-reveal, which gates admin vs
+// sre and audits each access individually.
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
 	const { cluster, ns, name } = event.params;
@@ -19,30 +20,25 @@ export const load: PageServerLoad = async (event) => {
 			core(cluster).readNamespacedSecret({ name, namespace: ns })
 		);
 
-		const decoded: Record<string, string> = {};
-		for (const [k, v] of Object.entries((sec.data ?? {}) as Record<string, string>)) {
+		const data = (sec.data ?? {}) as Record<string, string>;
+		const keys: Array<{ key: string; len: number }> = [];
+		for (const [k, v] of Object.entries(data)) {
+			let len = 0;
 			try {
-				decoded[k] = Buffer.from(v, 'base64').toString('utf8');
+				len = Buffer.from(v, 'base64').length;
 			} catch {
-				decoded[k] = '[unreadable]';
+				len = 0;
 			}
+			keys.push({ key: k, len });
 		}
-
-		record({
-			user: session?.user?.email ?? session?.user?.name ?? 'unknown',
-			roles: session?.roles ?? [],
-			cluster,
-			action: 'secret-view',
-			target: { kind: 'Secret', namespace: ns, name },
-			outcome: 'ok'
-		});
+		keys.sort((a, b) => a.key.localeCompare(b.key));
 
 		return {
 			cluster,
 			ns,
 			name,
 			type: sec.type ?? 'Opaque',
-			data: decoded,
+			keys,
 			creationTimestamp: sec.metadata?.creationTimestamp
 				? new Date(sec.metadata.creationTimestamp).toISOString()
 				: undefined
