@@ -4,6 +4,11 @@
 // without standing up a database. Every field stays on a single line
 // so log shippers can split on \n without surprise.
 //
+// In addition to stdout, the most recent N events are kept in an
+// in-memory ring buffer so /admin/audit can render a quick read view
+// without standing up Loki access in the dash. Restarts wipe the ring
+// (intentional — durable history is in stdout, not here).
+//
 // Outcomes: "ok" / "denied" (RBAC) / "error" (k8s API rejected). The
 // caller is responsible for invoking record() *after* determining the
 // outcome so we don't log "ok" for actions that failed mid-flight.
@@ -21,11 +26,31 @@ export type AuditEvent = {
 	durationMs?: number;
 };
 
+export type AuditRecord = AuditEvent & { ts: string };
+
+const RING_SIZE = 1000;
+const ring: AuditRecord[] = [];
+let cursor = 0;
+
 export function record(ev: AuditEvent): void {
-	const line = JSON.stringify({ kind: 'audit', ts: new Date().toISOString(), ...ev });
+	const rec: AuditRecord = { ts: new Date().toISOString(), ...ev };
+	const line = JSON.stringify({ kind: 'audit', ...rec });
 	// stderr would also work, but stdout matches the rest of the app's
 	// info logging — pino-style consumers split by JSON `level` later.
 	console.log(line);
+	if (ring.length < RING_SIZE) {
+		ring.push(rec);
+	} else {
+		ring[cursor] = rec;
+		cursor = (cursor + 1) % RING_SIZE;
+	}
+}
+
+export function auditSnapshot(): AuditRecord[] {
+	// Return newest-first regardless of where the cursor is.
+	const out = ring.slice();
+	out.sort((a, b) => b.ts.localeCompare(a.ts));
+	return out;
 }
 
 // Wrap an async write op so callers don't have to manually time +

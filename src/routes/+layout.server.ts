@@ -5,6 +5,7 @@ import { materialize } from '$lib/resource';
 import { buildAllTrees } from '$lib/resource-tree-k8s.server';
 import { ensureFresh as ensureDbTargetsFresh } from '$lib/db-targets.server';
 import { snapshot as k8sMetricsSnapshot } from '$lib/k8s-metrics.server';
+import { incidentSummary } from '$lib/incident-summary.server';
 
 // Surface the Auth.js session on every page via $page.data.session.
 // Keeping this in a layout (not per-page) means the topbar can show
@@ -36,12 +37,18 @@ export const load: LayoutServerLoad = async (event) => {
 				p95: m.p95
 			}
 		: null;
+	// Stuck-state pill — failing pods + bad nodes per cluster the user
+	// can read. 30s server-side cache so layout loads stay cheap.
+	const stuck = reader
+		? await incidentSummary((c) => canRead(session, c)).catch(() => null)
+		: null;
 	return {
 		session,
 		canRead: reader,
 		canWrite: canWrite(session),
 		defaultCluster: defaultCluster(),
 		tree,
-		apiHealth
+		apiHealth,
+		stuck
 	};
 };
