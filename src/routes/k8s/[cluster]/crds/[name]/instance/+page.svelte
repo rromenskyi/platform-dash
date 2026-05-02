@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { toast } from '$lib/toast.svelte';
 	import { lineDiff, diffStats } from '$lib/line-diff';
+	import { confirm as confirmDialog } from '$lib/confirm.svelte';
 
 	let { data } = $props();
 
@@ -92,8 +93,13 @@
 		}
 	}
 	async function deleteInstance() {
-		if (!confirm(`Delete ${data.crd.kind} ${data.instance.namespace ? data.instance.namespace + '/' : ''}${data.instance.name}?`))
-			return;
+		const proceed = await confirmDialog({
+			title: `Delete ${data.crd.kind}?`,
+			body: `${data.instance.namespace ? data.instance.namespace + '/' : ''}${data.instance.name}\n\nThis is non-recoverable; finalisers may delay the actual deletion.`,
+			confirm: 'Delete',
+			danger: true
+		});
+		if (!proceed) return;
 		try {
 			const res = await fetch(`/k8s/${data.cluster}/api/crd-delete`, {
 				method: 'POST',

@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { toast } from '$lib/toast.svelte';
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
+	import { confirm as confirmDialog } from '$lib/confirm.svelte';
 
 	let { data } = $props();
 	const canWrite = $derived(!!page.data.canWrite);
@@ -87,8 +88,14 @@
 		}
 	}
 
-	function killPod(cluster: string, ns: string, name: string) {
-		if (!confirm(`Delete pod ${ns}/${name}?\n\nController will respawn it if it has one.`)) return;
+	async function killPod(cluster: string, ns: string, name: string) {
+		const proceed = await confirmDialog({
+			title: 'Delete pod?',
+			body: `${ns}/${name}\n\nController will respawn it if it has one.`,
+			confirm: 'Delete',
+			danger: true
+		});
+		if (!proceed) return;
 		podAction('pod-delete', cluster, ns, name, { namespace: ns, name });
 	}
 
@@ -119,8 +126,13 @@
 
 	async function bulkKill() {
 		if (selectedPods.length === 0) return;
-		if (!confirm(`Delete ${selectedPods.length} pod(s)?\n\nControllers will respawn pods that have one.`))
-			return;
+		const proceed = await confirmDialog({
+			title: `Delete ${selectedPods.length} pod${selectedPods.length === 1 ? '' : 's'}?`,
+			body: `Controllers will respawn pods that have one.\n\n${selectedPods.map((p) => `· ${p.cluster}/${p.namespace}/${p.name}`).slice(0, 8).join('\n')}${selectedPods.length > 8 ? `\n· …and ${selectedPods.length - 8} more` : ''}`,
+			confirm: 'Delete',
+			danger: true
+		});
+		if (!proceed) return;
 		let ok = 0;
 		let fail = 0;
 		await Promise.all(

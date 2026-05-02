@@ -12,6 +12,7 @@
 	import { goto } from '$app/navigation';
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
 	import Highlight from '$lib/Highlight.svelte';
+	import { confirm as confirmDialog } from '$lib/confirm.svelte';
 
 	let { data } = $props();
 
@@ -383,8 +384,13 @@
 
 	async function bulkDelete() {
 		if (bulkPods.length === 0) return;
-		if (!confirm(`Delete ${bulkPods.length} pod(s)?\n\nControllers will respawn pods that have one.`))
-			return;
+		const proceed = await confirmDialog({
+			title: `Delete ${bulkPods.length} pod${bulkPods.length === 1 ? '' : 's'}?`,
+			body: `Controllers will respawn pods that have one.\n\n${bulkPods.map((p) => `· ${p.namespace}/${p.name}`).slice(0, 8).join('\n')}${bulkPods.length > 8 ? `\n· …and ${bulkPods.length - 8} more` : ''}`,
+			confirm: 'Delete',
+			danger: true
+		});
+		if (!proceed) return;
 		// Optimistic: drop selected pods immediately, restore the ones
 		// whose API call comes back failing. Live mode will receive the
 		// canonical DELETED event regardless and idempotently confirm.
@@ -414,7 +420,12 @@
 
 	async function bulkRestart() {
 		if (bulkRestartable.length === 0) return;
-		if (!confirm(`Rollout restart ${bulkRestartable.length} workload(s)?`)) return;
+		const proceed = await confirmDialog({
+			title: `Rollout restart ${bulkRestartable.length} workload${bulkRestartable.length === 1 ? '' : 's'}?`,
+			body: bulkRestartable.map((r) => `· ${r.kind} ${r.namespace}/${r.name}`).slice(0, 8).join('\n') + (bulkRestartable.length > 8 ? `\n· …and ${bulkRestartable.length - 8} more` : ''),
+			confirm: 'Restart'
+		});
+		if (!proceed) return;
 		let ok = 0;
 		let fail = 0;
 		await Promise.all(
@@ -433,8 +444,13 @@
 		if (!live) await invalidateAll();
 	}
 
-	function onRestart(r: WorkloadRow) {
-		if (!confirm(`Restart ${r.kind} ${r.namespace}/${r.name}?\n\nRolls a new revision.`)) return;
+	async function onRestart(r: WorkloadRow) {
+		const proceed = await confirmDialog({
+			title: `Restart ${r.kind}?`,
+			body: `${r.namespace}/${r.name}\n\nRolls a new revision; pods are recreated one by one.`,
+			confirm: 'Restart'
+		});
+		if (!proceed) return;
 		postAction('restart', { kind: r.kind, namespace: r.namespace, name: r.name });
 	}
 	function onScale(r: WorkloadRow) {
@@ -449,8 +465,13 @@
 		postAction('scale', { kind: r.kind, namespace: r.namespace, name: r.name, replicas: n });
 	}
 	async function onDelete(r: WorkloadRow) {
-		if (!confirm(`Delete pod ${r.namespace}/${r.name}?\n\nController will respawn it if it has one.`))
-			return;
+		const proceed = await confirmDialog({
+			title: 'Delete pod?',
+			body: `${r.namespace}/${r.name}\n\nController will respawn it if it has one.`,
+			confirm: 'Delete',
+			danger: true
+		});
+		if (!proceed) return;
 		const snap = spliceOut(r);
 		const ok = await postAction(
 			'pod-delete',
@@ -506,7 +527,7 @@
 <p class="muted small sort-hint">
 	sort: <button class="sort-reset" onclick={() => { sortKey = 'chaos'; sortDir = 'desc'; }} class:active={sortKey === 'chaos'}>chaos</button>
 	{#if sortKey !== 'chaos'}· click any column header to re-sort{/if}
-	· keys: <kbd>j</kbd>/<kbd>k</kbd> nav · <kbd>↵</kbd> open pod{#if canWrite} · <kbd>x</kbd> toggle select{/if} · <kbd>/</kbd> search
+	· press <kbd>?</kbd> for keyboard shortcuts
 </p>
 
 {#if canWrite && selected.size > 0}
