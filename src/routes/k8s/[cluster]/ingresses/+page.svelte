@@ -9,6 +9,7 @@
 	import LiveDot from '$lib/LiveDot.svelte';
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
 	import Highlight from '$lib/Highlight.svelte';
+	import { rowClick } from '$lib/row-click';
 
 	let { data } = $props();
 
@@ -79,7 +80,7 @@
 	<thead><tr><th>Namespace</th><th>Name</th><th>Class</th><th>Hosts → Backend</th><th>TLS</th><th>Age</th><th>Actions</th></tr></thead>
 	<tbody>
 		{#each filtered as r, i}
-			<tr class:row-focused={i === kbd.focusedIdx}>
+			<tr class:row-focused={i === kbd.focusedIdx} class="clickable" onclick={rowClick(`/k8s/${data.cluster}/ingresses/${r.namespace}/${r.name}`)}>
 				<td><Highlight text={r.namespace} {q} /></td>
 				<td class="mono"><a href="/k8s/{data.cluster}/ingresses/{r.namespace}/{r.name}"><Highlight text={r.name} {q} /></a></td>
 				<td class="mono small">{r.className ?? '—'}</td>
@@ -125,4 +126,6 @@
 	code { color: var(--fg); font-family: var(--font-mono); font-size: 0.85em; }
 	.error { padding: 0.75rem 1rem; background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; border-radius: 8px; color: #fb7185; }
 	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
+	tr.clickable { cursor: pointer; }
+	tr.clickable:hover td { background: var(--bg-elev); }
 </style>
