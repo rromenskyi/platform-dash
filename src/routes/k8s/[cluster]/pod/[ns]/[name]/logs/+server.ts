@@ -14,13 +14,15 @@ import { canRead } from '$lib/authz';
 // `requireRead` for free — the layout only runs for page loads.
 export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	const session = await locals.auth();
-	if (!canRead(session)) {
-		throw error(403, 'platform_admin or platform_sre role required');
-	}
-
 	const { cluster, ns, name } = params;
 	if (!isKnownCluster(cluster)) {
 		throw error(404, `Unknown cluster "${cluster}"`);
+	}
+	// Pass cluster so a `cluster_<name>_sre` operator can stream logs
+	// from their cluster — without it, only platform_* roles got
+	// through, locking out cluster-scoped readers entirely.
+	if (!canRead(session, cluster)) {
+		throw error(403, 'read role for this cluster required');
 	}
 
 	const containerName = url.searchParams.get('container') || '';

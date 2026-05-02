@@ -1,6 +1,6 @@
 import type { LayoutServerLoad } from './$types';
 import { canRead, canWrite } from '$lib/authz';
-import { defaultCluster } from '$lib/clusters.server';
+import { defaultCluster, listClusters } from '$lib/clusters.server';
 import { materialize } from '$lib/resource';
 import { buildAllTrees } from '$lib/resource-tree-k8s.server';
 import { ensureFresh as ensureDbTargetsFresh } from '$lib/db-targets.server';
@@ -16,7 +16,13 @@ import { incidentSummary } from '$lib/incident-summary.server';
 // /k8s/<default>/... when they're not already inside a cluster path.
 export const load: LayoutServerLoad = async (event) => {
 	const session = await event.locals.auth();
-	const reader = canRead(session);
+	// `canRead(session)` checks global roles only; cluster_<name>_sre
+	// users have access to a specific cluster but no global role, and
+	// without this fallback they'd see no sidebar / api pill / stuck
+	// pill at all and have to navigate by typing URLs. Treat them as
+	// readers if they can read at least one configured cluster.
+	const reader =
+		canRead(session) || listClusters().some((c) => canRead(session, c));
 	// Tree is read-only metadata about what's configured — only build
 	// it when the user actually has access to anything, so unauthorised
 	// pages don't waste cycles. Refresh the DB targets registry first
