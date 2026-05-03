@@ -612,7 +612,7 @@
 					{#if r.kind === 'Pod'}
 						<a href="/k8s/{data.cluster}/pod/{r.namespace}/{r.name}"><Highlight text={r.name} {q} /></a>
 					{:else}
-						<Highlight text={r.name} {q} />
+						<a href="/k8s/{data.cluster}/workload/{r.kind}/{r.namespace}/{r.name}"><Highlight text={r.name} {q} /></a>
 					{/if}
 				</td>
 				<td>{r.ready}</td>
