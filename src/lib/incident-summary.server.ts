@@ -75,12 +75,15 @@ async function compute(allowed: string[]): Promise<IncidentSummary> {
 					const restarts = containers.reduce((acc, c) => acc + (c.restartCount ?? 0), 0);
 					const phase = p.status?.phase ?? '?';
 					const waiting = containers.find((c) => c.state?.waiting)?.state?.waiting?.reason;
+					// Succeeded = Job/CronJob pod that finished cleanly. Never
+					// counts as failing for the topbar pill.
 					const isUnhappy =
-						phase === 'Failed' ||
-						phase === 'Unknown' ||
-						(phase === 'Pending' && !!waiting) ||
-						(phase === 'Running' && containers.some((c) => !c.ready)) ||
-						restarts >= 3;
+						phase !== 'Succeeded' &&
+						(phase === 'Failed' ||
+							phase === 'Unknown' ||
+							(phase === 'Pending' && !!waiting) ||
+							(phase === 'Running' && containers.some((c) => !c.ready)) ||
+							restarts >= 3);
 					if (isUnhappy) failing++;
 				}
 				let badNodes = 0;
