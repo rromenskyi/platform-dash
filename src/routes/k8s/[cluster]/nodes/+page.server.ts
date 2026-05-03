@@ -2,6 +2,19 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { accessibleNamespaces } from '$lib/authz';
+
+export type NodePod = {
+	namespace: string;
+	name: string;
+	phase: string;
+	ready: string;
+	restarts: number;
+	startedAt?: string;
+	// Image-pull / OOM surfacing — same heuristics as workloads list.
+	imagePullError?: boolean;
+	lastTermReason?: string;
+};
 
 export type NodeRow = {
 	name: string;
@@ -30,6 +43,10 @@ export type NodeRow = {
 	taints: Array<{ key: string; value?: string; effect: string }>;
 	labels: Record<string, string>;
 	unschedulable: boolean;
+	// Pods scheduled on this node, filtered to namespaces the operator
+	// can read. Sorted by namespace, then name. podsScheduled in usage
+	// is the unfiltered count for capacity-pressure reasoning.
+	pods: NodePod[];
 };
 
 // Quantity parsers — k8s expresses CPU as "100m" or "1" and memory as
@@ -93,6 +110,7 @@ export const load: PageServerLoad = async (event) => {
 	// so the operator can answer "how much is my workload taking up
 	// on each node" without summing across the whole cluster.
 	const ns = event.url.searchParams.get('ns') || '';
+	const accessible = accessibleNamespaces(session, cluster);
 
 	let rows: NodeRow[] = [];
 	let error: string | null = null;
@@ -160,6 +178,54 @@ export const load: PageServerLoad = async (event) => {
 				}
 			}
 
+			// Per-node pod list, filtered to namespaces the operator can
+			// read. The unfiltered count stays in usage.podsScheduled so
+			// "capacity pressure" stats still reflect reality even when
+			// the operator only sees a subset of pods.
+			const visibleOnNode = onNode.filter((p) => {
+				const podNs = p.metadata?.namespace;
+				if (!podNs) return false;
+				if (accessible !== 'all' && !accessible.includes(podNs)) return false;
+				return true;
+			});
+			const pods: NodePod[] = visibleOnNode
+				.map((p): NodePod => {
+					const containers = p.status?.containerStatuses ?? [];
+					const readyCount = containers.filter((c) => c.ready).length;
+					const total = containers.length || (p.spec?.containers?.length ?? 0);
+					const restarts = containers.reduce((acc, c) => acc + (c.restartCount ?? 0), 0);
+					const imagePullError = containers.some((c) => {
+						const r = c.state?.waiting?.reason ?? '';
+						return r === 'ImagePullBackOff' || r === 'ErrImagePull';
+					});
+					let lastTermReason: string | undefined;
+					for (const c of containers) {
+						if (c.lastState?.terminated?.reason === 'OOMKilled') {
+							lastTermReason = 'OOMKilled';
+							break;
+						}
+						if (!lastTermReason && c.lastState?.terminated?.reason) {
+							lastTermReason = c.lastState.terminated.reason;
+						}
+					}
+					return {
+						namespace: p.metadata?.namespace ?? '?',
+						name: p.metadata?.name ?? '?',
+						phase: p.status?.phase ?? '?',
+						ready: `${readyCount}/${total}`,
+						restarts,
+						startedAt: p.status?.startTime
+							? new Date(p.status.startTime).toISOString()
+							: undefined,
+						imagePullError: imagePullError || undefined,
+						lastTermReason
+					};
+				})
+				.sort((a, b) => {
+					if (a.namespace !== b.namespace) return a.namespace.localeCompare(b.namespace);
+					return a.name.localeCompare(b.name);
+				});
+
 			return {
 				name: n.metadata?.name ?? '?',
 				ready,
@@ -190,7 +256,8 @@ export const load: PageServerLoad = async (event) => {
 					effect: t.effect
 				})),
 				labels,
-				unschedulable: !!n.spec?.unschedulable
+				unschedulable: !!n.spec?.unschedulable,
+				pods
 			};
 		});
 
