@@ -115,12 +115,16 @@ export const load: PageServerLoad = async (event) => {
 					const phase = p.status?.phase ?? '?';
 					const waiting = containers.find((c) => c.state?.waiting)?.state?.waiting?.reason;
 					const lastTerm = containers.find((c) => c.lastState?.terminated)?.lastState?.terminated;
+					// Succeeded = Job/CronJob pod that finished cleanly. Never an
+					// incident, even if it accumulated restarts on the way to
+					// success (restartPolicy: OnFailure).
 					const isUnhappy =
-						phase === 'Failed' ||
-						phase === 'Unknown' ||
-						(phase === 'Pending' && !!waiting) ||
-						(phase === 'Running' && containers.some((c) => !c.ready)) ||
-						restarts >= 3;
+						phase !== 'Succeeded' &&
+						(phase === 'Failed' ||
+							phase === 'Unknown' ||
+							(phase === 'Pending' && !!waiting) ||
+							(phase === 'Running' && containers.some((c) => !c.ready)) ||
+							restarts >= 3);
 					if (isUnhappy) {
 						failingPods.push({
 							cluster,

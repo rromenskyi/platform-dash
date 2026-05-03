@@ -59,7 +59,10 @@ export const load: PageServerLoad = async (event) => {
 			hasSchema: !!v.schema?.openAPIV3Schema
 		}));
 		const storage = crd.spec.versions?.find((v) => v.storage) ?? crd.spec.versions?.[0];
-		storageSchema = storage?.schema?.openAPIV3Schema ?? null;
+		// k8s client returns class instances (V1JSONSchemaProps); devalue
+		// can only serialize POJOs, so round-trip through JSON to flatten.
+		const rawSchema = storage?.schema?.openAPIV3Schema;
+		storageSchema = rawSchema ? JSON.parse(JSON.stringify(rawSchema)) : null;
 		creationTimestamp = crd.metadata?.creationTimestamp
 			? new Date(crd.metadata.creationTimestamp).toISOString()
 			: undefined;
