@@ -14,13 +14,20 @@ export const load: PageServerLoad = async (event) => {
 	// surfaces already populate. Cheap snapshots, no fresh k8s calls.
 	const apiRing = snapshot();
 	const stuck = incidentSummary((c) => canRead(session, c));
-	const myStuck = stuck?.perCluster.find((c) => c.cluster === cluster) ?? null;
+	// Don't reuse the field name `stuck` here — the root layout's
+	// topbar pill reads `page.data.stuck` and expects the multi-cluster
+	// summary shape (with `perCluster: [...]`). SvelteKit merges page
+	// data over layout data, so naming the per-cluster slice `stuck`
+	// shadowed the layout's value, the topbar's `s.perCluster.map(...)`
+	// blew up at SSR with "Cannot read properties of undefined", and
+	// the route 500'd.
+	const clusterStuck = stuck?.perCluster.find((c) => c.cluster === cluster) ?? null;
 
 	return {
 		session,
 		cluster,
 		apiRing,
-		stuck: myStuck,
+		clusterStuck,
 		grafanaUrl: 'https://grafana.ipsupport.us'
 	};
 };

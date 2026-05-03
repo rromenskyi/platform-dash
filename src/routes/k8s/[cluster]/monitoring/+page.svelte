@@ -70,19 +70,19 @@
 
 	<div class="card">
 		<h3>Stuck-state on this cluster</h3>
-		{#if data.stuck}
+		{#if data.clusterStuck}
 			<div class="grid">
 				<div class="stat">
 					<span class="lbl">Failing pods</span>
-					<span class="val" class:bad={data.stuck.failing > 0}>{data.stuck.failing}</span>
+					<span class="val" class:bad={data.clusterStuck.failing > 0}>{data.clusterStuck.failing}</span>
 				</div>
 				<div class="stat">
 					<span class="lbl">Bad nodes</span>
-					<span class="val" class:bad={data.stuck.badNodes > 0}>{data.stuck.badNodes}</span>
+					<span class="val" class:bad={data.clusterStuck.badNodes > 0}>{data.clusterStuck.badNodes}</span>
 				</div>
 				<div class="stat">
 					<span class="lbl">Reachable</span>
-					<span class="val" class:bad={!data.stuck.reachable}>{data.stuck.reachable ? 'yes' : 'no'}</span>
+					<span class="val" class:bad={!data.clusterStuck.reachable}>{data.clusterStuck.reachable ? 'yes' : 'no'}</span>
 				</div>
 			</div>
 			<p class="muted small note">
