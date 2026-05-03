@@ -10,7 +10,7 @@
 	let { data } = $props();
 	const entries = $derived(Object.entries(data.data));
 
-	const canWrite = $derived(!!page.data.canWrite);
+	const canWrite = $derived(!!(data.canWriteHere ?? page.data.canWrite));
 
 	let format = $state<'yaml' | 'json'>('yaml');
 	let editing = $state(false);

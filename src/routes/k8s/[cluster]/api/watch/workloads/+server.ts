@@ -125,10 +125,10 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	const session = await locals.auth();
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
-	if (!canRead(session, cluster)) {
-		throw error(403, 'platform_admin/sre or cluster_<name>_admin/sre role required');
-	}
 	const ns = url.searchParams.get('ns') || '';
+	if (!canRead(session, cluster, ns || undefined)) {
+		throw error(403, 'read role required (cluster-wide or matching ?ns=)');
+	}
 	const w = watcher(cluster);
 	const encoder = new TextEncoder();
 

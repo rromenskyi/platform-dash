@@ -1,5 +1,5 @@
 import type { LayoutServerLoad } from './$types';
-import { canRead, canWrite } from '$lib/authz';
+import { canRead, canWrite, hasAnyNamespaceRole } from '$lib/authz';
 import { defaultCluster, listClusters } from '$lib/clusters.server';
 import { materialize } from '$lib/resource';
 import { buildAllTrees } from '$lib/resource-tree-k8s.server';
@@ -18,11 +18,13 @@ export const load: LayoutServerLoad = async (event) => {
 	const session = await event.locals.auth();
 	// `canRead(session)` checks global roles only; cluster_<name>_sre
 	// users have access to a specific cluster but no global role, and
-	// without this fallback they'd see no sidebar / api pill / stuck
-	// pill at all and have to navigate by typing URLs. Treat them as
-	// readers if they can read at least one configured cluster.
+	// namespace_<name>_sre/admin users have access to one namespace.
+	// Treat them all as readers so the layout, sidebar and topbar pill
+	// render — per-page loaders do the actual ns-scoped checks.
 	const reader =
-		canRead(session) || listClusters().some((c) => canRead(session, c));
+		canRead(session) ||
+		listClusters().some((c) => canRead(session, c)) ||
+		hasAnyNamespaceRole(session);
 	// Tree is read-only metadata about what's configured — only build
 	// it when the user actually has access to anything, so unauthorised
 	// pages don't waste cycles. Refresh the DB targets registry first

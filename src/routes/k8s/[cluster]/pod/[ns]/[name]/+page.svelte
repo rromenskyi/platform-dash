@@ -108,7 +108,9 @@
 		return lines.length ? { lines, hints } : null;
 	});
 
-	const canWrite = $derived(!!page.data.canWrite);
+	// Prefer the page's own ns-aware flag (set by +page.server) so a
+	// namespace_<ns>_admin still sees write controls in their pod.
+	const canWrite = $derived(!!(data.canWriteHere ?? page.data.canWrite));
 
 	const ownerControllable = $derived.by(() => {
 		const o = data.pod.ownerRefs.find(

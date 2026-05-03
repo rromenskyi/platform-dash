@@ -22,13 +22,16 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const session = await locals.auth();
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
-	if (!canRead(session, cluster)) {
-		throw error(403, 'platform_admin/sre or cluster_<name>_admin/sre role required');
-	}
 
 	const body = (await request.json()) as { namespace?: string; name?: string; key?: string };
 	if (!body.namespace || !body.name || !body.key) {
 		throw error(400, 'namespace + name + key required');
+	}
+	if (!canRead(session, cluster, body.namespace)) {
+		throw error(
+			403,
+			'platform_admin/sre, cluster_<x>_admin/sre, or namespace_<x>_admin/sre role required'
+		);
 	}
 
 	const target = { kind: 'Secret', namespace: body.namespace, name: body.name, key: body.key };
@@ -57,7 +60,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 			throw error(404, `Secret ${body.namespace}/${body.name} has no key "${body.key}"`);
 		}
 		const real = Buffer.from(b64, 'base64').toString('utf8');
-		if (!canWrite(session, cluster)) {
+		if (!canWrite(session, cluster, body.namespace)) {
 			// Caller has read but not write — return same-length mask.
 			record({
 				...baseEvent,

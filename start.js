@@ -94,10 +94,11 @@ async function getSessionFromUpgrade(req) {
 
 // canWrite — same role rules as authz.ts. Duplicated here so this
 // bootstrap doesn't depend on hashed SvelteKit chunks.
-function canWrite(session, cluster) {
+function canWrite(session, cluster, namespace) {
 	const roles = session?.roles ?? [];
 	if (roles.includes('platform_admin')) return true;
 	if (cluster && roles.includes(`cluster_${cluster}_admin`)) return true;
+	if (namespace && roles.includes(`namespace_${namespace}_admin`)) return true;
 	return false;
 }
 
@@ -180,7 +181,10 @@ async function handleExecUpgrade(req, socket, head, params) {
 		return;
 	}
 	const session = await getSessionFromUpgrade(req);
-	if (!canWrite(session, params.cluster)) {
+	// Pass ns so a namespace_<ns>_admin can shell into pods in their
+	// own namespace; cluster-wide write or platform admin still pass
+	// without the ns arg matching.
+	if (!canWrite(session, params.cluster, params.ns)) {
 		socket.destroy();
 		return;
 	}

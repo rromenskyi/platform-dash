@@ -4,6 +4,26 @@
 
 	let { data, children } = $props();
 
+	// `null` = full / cluster-wide read; `string[]` = the operator only
+	// has namespace_<x>_admin/sre, with this concrete list of namespaces.
+	const nsOnly = $derived(
+		(data.accessibleNamespaces as string[] | null | undefined) ?? null
+	);
+	const isNsOnly = $derived(nsOnly !== null);
+
+	// If the operator is namespace-scoped and currently looking at a
+	// page without a ?ns= filter (or one outside their list), pin the
+	// URL to the first allowed namespace. Without this every cluster-
+	// wide list page would render empty for them.
+	$effect(() => {
+		if (!isNsOnly || !nsOnly || nsOnly.length === 0) return;
+		const cur = data.ns;
+		if (cur && nsOnly.includes(cur)) return;
+		const url = new URL(page.url);
+		url.searchParams.set('ns', nsOnly[0]);
+		goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	});
+
 	// Local input state — kept in sync with data.{ns,cluster} whenever
 	// the URL changes externally (back/forward nav, explicit goto),
 	// but free to drift while the user is mid-type before commit.
@@ -74,25 +94,42 @@
 
 	<div class="field">
 		<label for="global-ns">namespace</label>
-		<input
-			id="global-ns"
-			class="ns-input"
-			type="search"
-			list="global-ns-options"
-			bind:value={nsInput}
-			onchange={onCommit}
-			onblur={onCommit}
-			onkeydown={onNsKey}
-			placeholder="all namespaces"
-		/>
-		<datalist id="global-ns-options">
-			{#each data.namespaces as n}
-				<option value={n}></option>
-			{/each}
-		</datalist>
-		{#if data.ns}
-			<button class="clear" onclick={onClear} title="Show all namespaces">×</button>
-			<span class="active-ns">filtering by <code>{data.ns}</code></span>
+		{#if isNsOnly}
+			<!-- Lock the picker for namespace-scoped operators. They can
+			     only switch between the namespaces their roles cover;
+			     "all namespaces" doesn't apply. -->
+			<select
+				id="global-ns"
+				class="ns-input"
+				bind:value={nsInput}
+				onchange={onCommit}
+			>
+				{#each data.namespaces as n}
+					<option value={n}>{n}</option>
+				{/each}
+			</select>
+			<span class="active-ns">role-scoped to <code>{data.ns || data.namespaces[0] || '—'}</code></span>
+		{:else}
+			<input
+				id="global-ns"
+				class="ns-input"
+				type="search"
+				list="global-ns-options"
+				bind:value={nsInput}
+				onchange={onCommit}
+				onblur={onCommit}
+				onkeydown={onNsKey}
+				placeholder="all namespaces"
+			/>
+			<datalist id="global-ns-options">
+				{#each data.namespaces as n}
+					<option value={n}></option>
+				{/each}
+			</datalist>
+			{#if data.ns}
+				<button class="clear" onclick={onClear} title="Show all namespaces">×</button>
+				<span class="active-ns">filtering by <code>{data.ns}</code></span>
+			{/if}
 		{/if}
 	</div>
 </div>

@@ -15,9 +15,6 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const session = await locals.auth();
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
-	if (!canWrite(session, cluster)) {
-		throw error(403, 'platform_admin or cluster_<name>_admin role required');
-	}
 
 	const body = (await request.json()) as {
 		kind?: 'Deployment' | 'StatefulSet';
@@ -32,6 +29,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const r = Number(body.replicas);
 	if (!Number.isInteger(r) || r < 0 || r > MAX_REPLICAS) {
 		throw error(400, `replicas must be an integer in 0..${MAX_REPLICAS}`);
+	}
+	if (!canWrite(session, cluster, body.namespace)) {
+		throw error(403, 'platform_admin, cluster_<x>_admin, or namespace_<x>_admin role required');
 	}
 
 	const patch = { spec: { replicas: r } };

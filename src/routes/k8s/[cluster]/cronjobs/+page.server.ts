@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { batch } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { accessibleNamespaces } from '$lib/authz';
 
 export type CronRow = {
 	namespace: string;
@@ -13,8 +14,10 @@ export type CronRow = {
 };
 
 export const load: PageServerLoad = async (event) => {
+	const session = await event.locals.auth();
 	const cluster = event.params.cluster;
 	const ns = event.url.searchParams.get('ns') || '';
+	const accessible = accessibleNamespaces(session, cluster);
 	let rows: CronRow[] = [];
 	let error: string | null = null;
 	try {
@@ -26,6 +29,11 @@ export const load: PageServerLoad = async (event) => {
 					batch(cluster).listCronJobForAllNamespaces()
 				);
 		rows = res.items
+			.filter((c) => {
+				if (accessible === 'all') return true;
+				const n = c.metadata?.namespace;
+				return !!n && accessible.includes(n);
+			})
 			.map((c) => ({
 				namespace: c.metadata?.namespace ?? '?',
 				name: c.metadata?.name ?? '?',

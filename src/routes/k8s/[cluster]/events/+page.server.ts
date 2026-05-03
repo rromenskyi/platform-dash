@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
-import { canRead } from '$lib/authz';
+import { canRead, accessibleNamespaces, hasAnyNamespaceRole } from '$lib/authz';
 
 export type EventRow = {
 	type: string;
@@ -19,9 +19,14 @@ export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
 	const { cluster } = event.params;
 	if (!session?.user) throw redirect(303, '/');
-	if (!canRead(session, cluster)) throw redirect(303, '/');
+	// Cluster-wide read OR ns-scoped read both pass — page itself
+	// filters rows below.
+	if (!canRead(session, cluster) && !hasAnyNamespaceRole(session)) {
+		throw redirect(303, '/');
+	}
 
 	const ns = event.url.searchParams.get('ns') || '';
+	const accessible = accessibleNamespaces(session, cluster);
 
 	let rows: EventRow[] = [];
 	let error: string | null = null;
@@ -34,6 +39,11 @@ export const load: PageServerLoad = async (event) => {
 					core(cluster).listEventForAllNamespaces()
 				);
 		rows = res.items
+			.filter((e) => {
+				if (accessible === 'all') return true;
+				const n = e.metadata?.namespace ?? e.involvedObject?.namespace;
+				return !!n && accessible.includes(n);
+			})
 			.map((e) => ({
 				type: e.type ?? '?',
 				reason: e.reason ?? '?',

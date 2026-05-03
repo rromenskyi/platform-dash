@@ -13,7 +13,7 @@ import { time } from '$lib/k8s-metrics.server';
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
 	const { cluster, ns, name } = event.params;
-	requireRead(session, cluster);
+	requireRead(session, cluster, ns);
 
 	try {
 		const sec = await time(`${cluster}/readNamespacedSecret`, () =>

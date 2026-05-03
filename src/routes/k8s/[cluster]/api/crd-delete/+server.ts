@@ -19,9 +19,6 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const session = await locals.auth();
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
-	if (!canWrite(session, cluster)) {
-		throw error(403, 'platform_admin or cluster_<name>_admin role required');
-	}
 
 	const reqBody = (await request.json()) as {
 		crdName?: string;
@@ -30,6 +27,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	};
 	if (!reqBody.crdName || !reqBody.name) {
 		throw error(400, 'crdName and name are required');
+	}
+	if (!canWrite(session, cluster, reqBody.namespace)) {
+		throw error(403, 'platform_admin, cluster_<x>_admin, or namespace_<x>_admin role required');
 	}
 
 	let group = '';
@@ -51,6 +51,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	}
 	if (scope !== 'Namespaced' && reqBody.namespace) {
 		throw error(400, `${reqBody.crdName} is cluster-scoped — namespace must not be set`);
+	}
+	if (scope !== 'Namespaced' && !canWrite(session, cluster)) {
+		throw error(403, `cluster-scoped ${reqBody.crdName} requires cluster_<x>_admin or platform_admin`);
 	}
 
 	const auditBase = {

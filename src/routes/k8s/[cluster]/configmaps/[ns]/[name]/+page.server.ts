@@ -3,9 +3,12 @@ import type { PageServerLoad } from './$types';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { auditScopedTo } from '$lib/audit.server';
+import { requireRead, canWrite } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const { cluster, ns, name } = event.params;
+	const session = await event.locals.auth();
+	requireRead(session, cluster, ns);
 	try {
 		const cm = await time(`${cluster}/readNamespacedConfigMap`, () =>
 			core(cluster).readNamespacedConfigMap({ name, namespace: ns })
@@ -27,7 +30,8 @@ export const load: PageServerLoad = async (event) => {
 				: undefined,
 			labels: (cm.metadata?.labels ?? {}) as Record<string, string>,
 			object: stripped,
-			scopedAudit: auditScopedTo({ cluster, kind: 'ConfigMap', namespace: ns, name, limit: 20 })
+			scopedAudit: auditScopedTo({ cluster, kind: 'ConfigMap', namespace: ns, name, limit: 20 }),
+			canWriteHere: canWrite(session, cluster, ns)
 		};
 	} catch (err) {
 		console.error('read configmap failed', err);

@@ -82,7 +82,11 @@
 		{/if}
 	</h2>
 
-	{#if data.instancesError}
+	{#if data.hideClusterScopedInstances}
+		<p class="muted small">
+			This is a cluster-scoped CRD. Instance list is hidden because your role is namespace-scoped.
+		</p>
+	{:else if data.instancesError}
 		<p class="error">Failed to list instances: {data.instancesError}</p>
 	{:else if !data.crd.servingVersion}
 		<p class="muted small">No served version — cannot enumerate instances.</p>

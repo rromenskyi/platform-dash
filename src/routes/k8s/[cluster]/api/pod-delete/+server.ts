@@ -13,12 +13,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const session = await locals.auth();
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
-	if (!canWrite(session, cluster)) {
-		throw error(403, 'platform_admin or cluster_<name>_admin role required');
-	}
 
 	const body = (await request.json()) as { namespace?: string; name?: string };
 	if (!body.namespace || !body.name) throw error(400, 'namespace + name required');
+	if (!canWrite(session, cluster, body.namespace)) {
+		throw error(403, 'platform_admin, cluster_<x>_admin, or namespace_<x>_admin role required');
+	}
 
 	const target = { kind: 'Pod', namespace: body.namespace, name: body.name };
 	const baseEvent = {

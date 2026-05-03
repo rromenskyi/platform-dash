@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core, apps } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { accessibleNamespaces } from '$lib/authz';
 
 export type WorkloadRow = {
 	namespace: string;
@@ -162,11 +163,17 @@ export const load: PageServerLoad = async (event) => {
 		})()
 	]);
 
-	rows.sort((a, b) => {
+	// For ns-only operators, drop rows in namespaces they have no
+	// role for. Filtering server-side keeps the row count stat
+	// honest and avoids leaking pod names through the SSE delta path.
+	const accessible = accessibleNamespaces(session, cluster);
+	const filtered = accessible === 'all' ? rows : rows.filter((r) => accessible.includes(r.namespace));
+
+	filtered.sort((a, b) => {
 		if (a.namespace !== b.namespace) return a.namespace.localeCompare(b.namespace);
 		if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
 		return a.name.localeCompare(b.name);
 	});
 
-	return { session, rows, cluster, error: errors.length ? errors.join('; ') : null };
+	return { session, rows: filtered, cluster, error: errors.length ? errors.join('; ') : null };
 };

@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import { networking, core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { auditScopedTo } from '$lib/audit.server';
+import { requireRead } from '$lib/authz';
 
 export type ScopedEvent = {
 	type: string;
@@ -54,6 +55,8 @@ export type IngressRule = {
 
 export const load: PageServerLoad = async (event) => {
 	const { cluster, ns, name } = event.params;
+	const session = await event.locals.auth();
+	requireRead(session, cluster, ns);
 
 	let ing;
 	try {
