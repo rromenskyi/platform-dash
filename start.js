@@ -15,7 +15,8 @@ import { handler } from './build/handler.js';
 import http from 'node:http';
 import { PassThrough } from 'node:stream';
 import { WebSocketServer } from 'ws';
-import { KubeConfig, Exec } from '@kubernetes/client-node';
+import { KubeConfig, Exec, CoreV1Api } from '@kubernetes/client-node';
+import { randomBytes } from 'node:crypto';
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -106,6 +107,10 @@ const STDOUT = 1;
 const STDERR = 2;
 const ERR = 3;
 const RESIZE = 4;
+// Out-of-band metadata frames (e.g. ephemeral pod name once it's
+// running). The pod-exec bridge doesn't use this channel; cloudshell
+// does so the UI can show the operator what was created.
+const META = 5;
 
 function prefixed(channel, body) {
 	const out = Buffer.alloc(body.length + 1);
@@ -302,6 +307,279 @@ async function handleExecUpgrade(req, socket, head, params) {
 	});
 }
 
+// ── Cloudshell: ephemeral pod per session ─────────────────────────────
+// Spins up a one-shot pod with `bitnami/kubectl` (kubectl + bash + the
+// usual crew), exec's into it, deletes on close. Auth is global
+// platform_admin only — the pod runs under the dash service account
+// and thus has the dash's k8s permissions, so giving cluster-scoped
+// roles a cloudshell would silently elevate them.
+const CLOUDSHELL_NAMESPACE = process.env.CLOUDSHELL_NAMESPACE ?? 'platform';
+const CLOUDSHELL_IMAGE = process.env.CLOUDSHELL_IMAGE ?? 'bitnami/kubectl:latest';
+const CLOUDSHELL_SA = process.env.CLOUDSHELL_SERVICE_ACCOUNT ?? 'platform-dash';
+const CLOUDSHELL_TTL_SECONDS = Number(process.env.CLOUDSHELL_TTL_SECONDS ?? 4 * 60 * 60);
+const CLOUDSHELL_BOOT_TIMEOUT_MS = 30_000;
+
+function sanitizeUserForLabel(s) {
+	return (s || 'anon').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'anon';
+}
+
+async function createCloudshellPod(cluster, owner) {
+	const kc = getKubeConfig(cluster);
+	const k = kc.makeApiClient(CoreV1Api);
+	const safeOwner = sanitizeUserForLabel(owner);
+	const sessionId = randomBytes(4).toString('hex');
+	const name = `cloudshell-${safeOwner}-${sessionId}`.slice(0, 63);
+	const body = {
+		metadata: {
+			name,
+			namespace: CLOUDSHELL_NAMESPACE,
+			labels: {
+				app: 'cloudshell',
+				'platform-dash/owner': safeOwner,
+				'platform-dash/session': sessionId
+			}
+		},
+		spec: {
+			serviceAccountName: CLOUDSHELL_SA,
+			restartPolicy: 'Never',
+			activeDeadlineSeconds: CLOUDSHELL_TTL_SECONDS,
+			terminationGracePeriodSeconds: 5,
+			automountServiceAccountToken: true,
+			containers: [
+				{
+					name: 'shell',
+					image: CLOUDSHELL_IMAGE,
+					command: ['sleep', String(CLOUDSHELL_TTL_SECONDS)],
+					tty: true,
+					stdin: true,
+					resources: {
+						requests: { cpu: '50m', memory: '64Mi' },
+						limits: { cpu: '500m', memory: '512Mi' }
+					}
+				}
+			]
+		}
+	};
+	await k.createNamespacedPod({ namespace: CLOUDSHELL_NAMESPACE, body });
+	const deadline = Date.now() + CLOUDSHELL_BOOT_TIMEOUT_MS;
+	for (;;) {
+		const got = await k.readNamespacedPod({ name, namespace: CLOUDSHELL_NAMESPACE });
+		const phase = got.status?.phase;
+		if (phase === 'Running') return { name, namespace: CLOUDSHELL_NAMESPACE };
+		if (phase === 'Failed' || phase === 'Succeeded') {
+			throw new Error(`cloudshell pod entered ${phase} before becoming Running`);
+		}
+		if (Date.now() > deadline) {
+			throw new Error(`cloudshell pod did not reach Running within ${CLOUDSHELL_BOOT_TIMEOUT_MS}ms (phase=${phase ?? '?'})`);
+		}
+		await new Promise((r) => setTimeout(r, 500));
+	}
+}
+
+async function deleteCloudshellPod(cluster, namespace, name) {
+	try {
+		const kc = getKubeConfig(cluster);
+		const k = kc.makeApiClient(CoreV1Api);
+		await k.deleteNamespacedPod({ name, namespace, gracePeriodSeconds: 0 });
+	} catch (err) {
+		console.error('cloudshell pod cleanup failed', name, err);
+	}
+}
+
+async function handleCloudshellUpgrade(req, socket, head, params) {
+	if (!originAllowed(req)) {
+		socket.destroy();
+		return;
+	}
+	if (!clusters.find((c) => c.name === params.cluster)) {
+		socket.destroy();
+		return;
+	}
+	const session = await getSessionFromUpgrade(req);
+	// Global canWrite only — cluster-scoped admins don't get a
+	// cloudshell because the pod runs as the dash SA. See note above.
+	if (!canWrite(session)) {
+		socket.destroy();
+		return;
+	}
+	const owner = session?.user?.email ?? session?.user?.name ?? 'unknown';
+
+	const ws = await new Promise((resolve) =>
+		wss.handleUpgrade(req, socket, head, (s) => resolve(s))
+	);
+
+	const baseAudit = {
+		user: owner,
+		roles: session?.roles ?? [],
+		cluster: params.cluster,
+		action: 'cloudshell',
+		target: { kind: 'Pod', namespace: CLOUDSHELL_NAMESPACE }
+	};
+	const start = performance.now();
+
+	let pod = null;
+	let upstream = null;
+	let closed = false;
+	const stdin = new PassThrough();
+
+	function closeAll() {
+		if (closed) return;
+		closed = true;
+		try {
+			stdin.end();
+		} catch {}
+		try {
+			upstream?.close();
+		} catch {}
+		try {
+			ws.close();
+		} catch {}
+		if (pod) {
+			deleteCloudshellPod(params.cluster, pod.namespace, pod.name);
+		}
+	}
+
+	ws.on('close', () => {
+		const ms = Math.round(performance.now() - start);
+		audit({
+			...baseAudit,
+			target: { ...baseAudit.target, name: pod?.name },
+			outcome: 'ok',
+			message: 'session closed',
+			durationMs: ms
+		});
+		closeAll();
+	});
+
+	try {
+		pod = await createCloudshellPod(params.cluster, owner);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		audit({ ...baseAudit, outcome: 'error', message: `pod create failed: ${msg}`, durationMs: Math.round(performance.now() - start) });
+		try {
+			ws.send(prefixed(ERR, Buffer.from(`pod create failed: ${msg}`, 'utf8')));
+			ws.close();
+		} catch {}
+		try {
+			stdin.end();
+		} catch {}
+		return;
+	}
+
+	audit({
+		...baseAudit,
+		target: { ...baseAudit.target, name: pod.name },
+		outcome: 'ok',
+		message: 'pod created',
+		durationMs: Math.round(performance.now() - start)
+	});
+	try {
+		ws.send(prefixed(META, Buffer.from(JSON.stringify({ pod: pod.name, namespace: pod.namespace }), 'utf8')));
+	} catch {}
+
+	const stdout = mkWriter(ws, STDOUT);
+	const stderr = mkWriter(ws, STDERR);
+
+	try {
+		const exec = new Exec(getKubeConfig(params.cluster));
+		upstream = await exec.exec(
+			pod.namespace,
+			pod.name,
+			'shell',
+			['bash', '-i'],
+			stdout,
+			stderr,
+			stdin,
+			true,
+			(status) => {
+				const m =
+					status?.status === 'Success'
+						? null
+						: `\r\n[exec ended: ${status?.message ?? status?.reason ?? 'unknown'}]\r\n`;
+				if (m) {
+					try {
+						ws.send(prefixed(STDERR, Buffer.from(m, 'utf8')));
+					} catch {}
+				}
+				closeAll();
+			}
+		);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		audit({
+			...baseAudit,
+			target: { ...baseAudit.target, name: pod.name },
+			outcome: 'error',
+			message: `exec failed: ${msg}`,
+			durationMs: Math.round(performance.now() - start)
+		});
+		try {
+			ws.send(prefixed(ERR, Buffer.from(`exec failed: ${msg}`, 'utf8')));
+			ws.close();
+		} catch {}
+		try {
+			stdin.end();
+		} catch {}
+		return;
+	}
+
+	ws.on('message', (raw) => {
+		const buf = raw;
+		if (!Buffer.isBuffer(buf) || buf.length === 0) return;
+		const prefix = buf[0];
+		const body = buf.subarray(1);
+		if (prefix === STDIN) {
+			stdin.write(body);
+		} else if (prefix === RESIZE && upstream) {
+			try {
+				const obj = JSON.parse(body.toString('utf8'));
+				if (
+					typeof obj?.Width !== 'number' ||
+					typeof obj?.Height !== 'number' ||
+					!Number.isFinite(obj.Width) ||
+					!Number.isFinite(obj.Height)
+				) {
+					ws.send(prefixed(ERR, Buffer.from('bad RESIZE frame', 'utf8')));
+					return;
+				}
+				upstream.send(Buffer.concat([Buffer.from([RESIZE]), body]));
+			} catch {
+				try {
+					ws.send(prefixed(ERR, Buffer.from('RESIZE frame is not JSON', 'utf8')));
+				} catch {}
+			}
+		}
+	});
+}
+
+// On boot, sweep any cloudshell pods left over from a previous dash
+// process so they don't pile up across restarts. Best-effort — if the
+// list/delete calls fail (RBAC, apiserver hiccup) we just log and
+// move on; activeDeadlineSeconds on the pod spec is the backstop.
+async function sweepOrphanCloudshells() {
+	for (const c of clusters) {
+		try {
+			const k = getKubeConfig(c.name).makeApiClient(CoreV1Api);
+			const list = await k.listNamespacedPod({
+				namespace: CLOUDSHELL_NAMESPACE,
+				labelSelector: 'app=cloudshell'
+			});
+			for (const p of list.items) {
+				const name = p.metadata?.name;
+				if (!name) continue;
+				try {
+					await k.deleteNamespacedPod({ name, namespace: CLOUDSHELL_NAMESPACE, gracePeriodSeconds: 0 });
+					console.log(`cloudshell sweep: deleted orphan ${c.name}/${name}`);
+				} catch (err) {
+					console.error(`cloudshell sweep: delete ${c.name}/${name} failed`, err);
+				}
+			}
+		} catch (err) {
+			console.error(`cloudshell sweep on ${c.name} failed`, err);
+		}
+	}
+}
+
 // ── HTTP + upgrade wiring ────────────────────────────────────────────
 const server = http.createServer((req, res) => {
 	handler(req, res);
@@ -313,31 +591,40 @@ server.on('upgrade', (req, socket, head) => {
 		return;
 	}
 	const u = new URL(req.url, 'http://localhost');
-	const m = /^\/ws\/exec\/([^/]+)\/([^/]+)\/([^/?#]+)$/.exec(u.pathname);
-	if (!m) {
-		socket.destroy();
-		return;
-	}
-	// `handleExecUpgrade` is async; the upgrade event listener can't
-	// await it, so an unhandled rejection inside would otherwise hit
-	// the process-wide `unhandledRejection` and crash node 22 in
-	// strict mode. Catch + destroy as a last resort.
-	handleExecUpgrade(req, socket, head, {
-		cluster: decodeURIComponent(m[1]),
-		ns: decodeURIComponent(m[2]),
-		pod: decodeURIComponent(m[3]),
-		container: u.searchParams.get('container') ?? undefined,
-		shell: u.searchParams.get('shell') ?? undefined
-	}).catch((err) => {
-		console.error('handleExecUpgrade failed', err);
+	// `handle*Upgrade` is async; the upgrade event listener can't await
+	// it, so an unhandled rejection inside would otherwise hit the
+	// process-wide `unhandledRejection` and crash node 22 in strict
+	// mode. Catch + destroy as a last resort.
+	const onFail = (err, label) => {
+		console.error(`${label} failed`, err);
 		try {
 			socket.destroy();
-		} catch {
-			/* */
-		}
-	});
+		} catch {}
+	};
+	const exec = /^\/ws\/exec\/([^/]+)\/([^/]+)\/([^/?#]+)$/.exec(u.pathname);
+	if (exec) {
+		handleExecUpgrade(req, socket, head, {
+			cluster: decodeURIComponent(exec[1]),
+			ns: decodeURIComponent(exec[2]),
+			pod: decodeURIComponent(exec[3]),
+			container: u.searchParams.get('container') ?? undefined,
+			shell: u.searchParams.get('shell') ?? undefined
+		}).catch((err) => onFail(err, 'handleExecUpgrade'));
+		return;
+	}
+	const cloud = /^\/ws\/cloudshell\/([^/?#]+)$/.exec(u.pathname);
+	if (cloud) {
+		handleCloudshellUpgrade(req, socket, head, {
+			cluster: decodeURIComponent(cloud[1])
+		}).catch((err) => onFail(err, 'handleCloudshellUpgrade'));
+		return;
+	}
+	socket.destroy();
 });
 
 server.listen(port, () => {
-	console.log(`platform-dash listening on :${port} (with /ws/exec/* WS bridge)`);
+	console.log(
+		`platform-dash listening on :${port} (with /ws/exec/* and /ws/cloudshell/* WS bridges)`
+	);
+	sweepOrphanCloudshells();
 });

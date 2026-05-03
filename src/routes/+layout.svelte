@@ -2,7 +2,7 @@
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { signIn, signOut } from '@auth/sveltekit/client';
-	import { page } from '$app/state';
+	import { page, updated } from '$app/state';
 	import { beforeNavigate } from '$app/navigation';
 	import type { SerializableNode } from '$lib/resource';
 	import Toasts from '$lib/Toasts.svelte';
@@ -12,14 +12,22 @@
 	import QuickSearch from '$lib/QuickSearch.svelte';
 	import { closeAll as closeAllLive } from '$lib/live-registry.svelte';
 
-	// Drop every active Live SSE before any client-side navigation.
-	// Browsers cap concurrent HTTP/1.1 connections per origin at 6 and
-	// SSE holds a slot indefinitely; in dev / non-HTTP/2 setups this
-	// would deadlock SvelteKit's load fetch behind the open stream.
-	// Pages that re-mount their stream via $effect re-open it after the
-	// navigation completes.
-	beforeNavigate(() => {
+	// Drop every active Live SSE before any client-side navigation, and
+	// force a hard reload if a redeploy was detected (kit.version
+	// pollInterval). Browsers cap concurrent HTTP/1.1 connections per
+	// origin at 6 and SSE holds a slot indefinitely; in dev / non-HTTP/2
+	// setups this would deadlock SvelteKit's load fetch behind the open
+	// stream. Stale-build reloads close the gap between an old client
+	// runtime and freshly-deployed server data — without this, hashed
+	// chunk URLs from the prior build 404 and any drift in the loader's
+	// data shape blows up at hydration ("Unexpected token 'export'" /
+	// "Cannot read properties of undefined").
+	beforeNavigate((nav) => {
 		closeAllLive();
+		if (updated.current && nav.to?.url) {
+			nav.cancel();
+			location.href = nav.to.url.href;
+		}
 	});
 
 	let { children } = $props();
@@ -299,6 +307,12 @@
 							<div class="trow">
 								<span class="caret-spacer"></span>
 								<a class="tlink" class:active={isHrefActive('/tools/http')} href="/tools/http">HTTP tester</a>
+							</div>
+						</li>
+						<li class="tnode">
+							<div class="trow">
+								<span class="caret-spacer"></span>
+								<a class="tlink" class:active={isHrefActive('/tools/shell')} href="/tools/shell">Cloud shell</a>
 							</div>
 						</li>
 					</ul>
