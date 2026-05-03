@@ -198,6 +198,7 @@
 	<div class="card chip"><span class="k">Failing pods</span><span class="v" class:bad={data.totals.pods > 0}>{data.totals.pods}</span></div>
 	<div class="card chip"><span class="k">Bad nodes</span><span class="v" class:bad={data.totals.nodes > 0}>{data.totals.nodes}</span></div>
 	<div class="card chip"><span class="k">Warning events</span><span class="v" class:warn={data.totals.events > 0}>{data.totals.events}</span></div>
+	<div class="card chip"><span class="k">OOMKilled (24h)</span><span class="v" class:bad={data.totals.oom > 0}>{data.totals.oom}</span></div>
 </section>
 
 {#if canWrite && (selected.size > 0 || flatPods.length > 0)}
@@ -297,6 +298,29 @@
 			</table>
 		{/if}
 
+		{#if r.oomKilled.length > 0}
+			<h3>OOMKilled <span class="muted small">(last 24h, {r.oomKilled.length})</span></h3>
+			<table>
+				<thead>
+					<tr><th>Namespace</th><th>Pod</th><th>Container</th><th class="num">Restarts</th><th>Memory limit</th><th>Killed at</th></tr>
+				</thead>
+				<tbody>
+					{#each r.oomKilled as o}
+						<tr>
+							<td>{o.namespace}</td>
+							<td class="mono">
+								<a href="/k8s/{r.cluster}/pod/{o.namespace}/{o.name}">{o.name}</a>
+							</td>
+							<td class="mono">{o.container}</td>
+							<td class="num" class:bad={o.restarts > 0}>{o.restarts}</td>
+							<td class="mono">{o.memoryLimit ?? '—'}</td>
+							<td>{age(o.finishedAt)}{#if o.exitCode !== undefined}<span class="muted small"> · exit {o.exitCode}</span>{/if}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		{/if}
+
 		{#if r.warningEvents.length > 0}
 			<h3>Warning events <span class="muted small">(top {r.warningEvents.length})</span></h3>
 			<table>
@@ -318,7 +342,7 @@
 			</table>
 		{/if}
 
-		{#if r.reachable && r.failingPods.length === 0 && r.badNodes.length === 0 && r.warningEvents.length === 0}
+		{#if r.reachable && r.failingPods.length === 0 && r.badNodes.length === 0 && r.warningEvents.length === 0 && r.oomKilled.length === 0}
 			<p class="ok-mini">All quiet on this cluster.</p>
 		{/if}
 	</section>

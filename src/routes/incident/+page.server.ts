@@ -34,6 +34,18 @@ export type BadNode = {
 	reason?: string;
 };
 
+export type OomPod = {
+	cluster: string;
+	namespace: string;
+	name: string;
+	container: string;
+	exitCode?: number;
+	restarts: number;
+	finishedAt?: string;
+	startedAt?: string;
+	memoryLimit?: string;
+};
+
 export type ClusterReport = {
 	cluster: string;
 	reachable: boolean;
@@ -41,8 +53,14 @@ export type ClusterReport = {
 	failingPods: FailingPod[];
 	warningEvents: WarningEvent[];
 	badNodes: BadNode[];
-	totals: { pods: number; nodes: number; events: number };
+	oomKilled: OomPod[];
+	totals: { pods: number; nodes: number; events: number; oom: number };
 };
+
+// "Recent" window for OOM surfacing — anything older than this gets
+// dropped from the panel (the operator can still see it on the pod
+// detail page). 24h matches the typical incident-review timeframe.
+const OOM_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // Snapshot every cluster the user can read. Per-cluster failures are
 // caught so one bad cluster doesn't take the whole page down — that
@@ -68,6 +86,8 @@ export const load: PageServerLoad = async (event) => {
 				]);
 
 				const failingPods: FailingPod[] = [];
+				const oomKilled: OomPod[] = [];
+				const cutoff = Date.now() - OOM_WINDOW_MS;
 				for (const p of pods.items) {
 					const containers = p.status?.containerStatuses ?? [];
 					const restarts = containers.reduce((acc, c) => acc + (c.restartCount ?? 0), 0);
@@ -80,23 +100,48 @@ export const load: PageServerLoad = async (event) => {
 						(phase === 'Pending' && !!waiting) ||
 						(phase === 'Running' && containers.some((c) => !c.ready)) ||
 						restarts >= 3;
-					if (!isUnhappy) continue;
-					failingPods.push({
-						cluster,
-						namespace: p.metadata?.namespace ?? '?',
-						name: p.metadata?.name ?? '?',
-						phase,
-						restarts,
-						reason: lastTerm?.reason ?? waiting,
-						exitCode: lastTerm?.exitCode,
-						containerWaiting: waiting,
-						startedAt: p.status?.startTime
-							? new Date(p.status.startTime).toISOString()
-							: undefined
-					});
+					if (isUnhappy) {
+						failingPods.push({
+							cluster,
+							namespace: p.metadata?.namespace ?? '?',
+							name: p.metadata?.name ?? '?',
+							phase,
+							restarts,
+							reason: lastTerm?.reason ?? waiting,
+							exitCode: lastTerm?.exitCode,
+							containerWaiting: waiting,
+							startedAt: p.status?.startTime
+								? new Date(p.status.startTime).toISOString()
+								: undefined
+						});
+					}
+					// OOM surface — independent of "is this pod unhappy
+					// right now". A pod that OOM'd two hours ago and
+					// recovered should still show up here.
+					for (const c of containers) {
+						const t = c.lastState?.terminated;
+						if (t?.reason !== 'OOMKilled') continue;
+						const fin = t.finishedAt ? new Date(t.finishedAt).getTime() : 0;
+						if (fin && fin < cutoff) continue;
+						const limits =
+							p.spec?.containers?.find((sc) => sc.name === c.name)?.resources?.limits ?? {};
+						oomKilled.push({
+							cluster,
+							namespace: p.metadata?.namespace ?? '?',
+							name: p.metadata?.name ?? '?',
+							container: c.name,
+							exitCode: t.exitCode,
+							restarts: c.restartCount ?? 0,
+							finishedAt: t.finishedAt ? new Date(t.finishedAt).toISOString() : undefined,
+							startedAt: t.startedAt ? new Date(t.startedAt).toISOString() : undefined,
+							memoryLimit: (limits as Record<string, string>).memory
+						});
+					}
 				}
 				// Worst first: by restarts desc, then name
 				failingPods.sort((a, b) => b.restarts - a.restarts || a.name.localeCompare(b.name));
+				// Most recent OOM first.
+				oomKilled.sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''));
 
 				const badNodes: BadNode[] = [];
 				let nodeReadyCount = 0;
@@ -153,7 +198,13 @@ export const load: PageServerLoad = async (event) => {
 					failingPods: failingPods.slice(0, 20),
 					warningEvents,
 					badNodes,
-					totals: { pods: pods.items.length, nodes: nodes.items.length, events: events.items.length }
+					oomKilled: oomKilled.slice(0, 20),
+					totals: {
+						pods: pods.items.length,
+						nodes: nodes.items.length,
+						events: events.items.length,
+						oom: oomKilled.length
+					}
 				};
 			} catch (err) {
 				return {
@@ -163,7 +214,8 @@ export const load: PageServerLoad = async (event) => {
 					failingPods: [],
 					warningEvents: [],
 					badNodes: [],
-					totals: { pods: 0, nodes: 0, events: 0 }
+					oomKilled: [],
+					totals: { pods: 0, nodes: 0, events: 0, oom: 0 }
 				};
 			}
 		})
@@ -173,9 +225,10 @@ export const load: PageServerLoad = async (event) => {
 		(acc, r) => ({
 			pods: acc.pods + r.failingPods.length,
 			nodes: acc.nodes + r.badNodes.length,
-			events: acc.events + r.warningEvents.length
+			events: acc.events + r.warningEvents.length,
+			oom: acc.oom + r.oomKilled.length
 		}),
-		{ pods: 0, nodes: 0, events: 0 }
+		{ pods: 0, nodes: 0, events: 0, oom: 0 }
 	);
 
 	return { reports, totals, snapshotAt: new Date().toISOString() };

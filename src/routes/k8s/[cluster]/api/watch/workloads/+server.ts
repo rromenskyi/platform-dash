@@ -33,6 +33,7 @@ function podRow(p: ItemMin) {
 				ready?: boolean;
 				restartCount?: number;
 				state?: { waiting?: { reason?: string } };
+				lastState?: { terminated?: { reason?: string } };
 			}>;
 		}).containerStatuses ?? []);
 	const ready = containers.filter((c) => c.ready).length;
@@ -43,6 +44,22 @@ function podRow(p: ItemMin) {
 		const r = c.state?.waiting?.reason ?? '';
 		return r === 'ImagePullBackOff' || r === 'ErrImagePull';
 	});
+	let lastTermReason: string | undefined;
+	for (const c of containers) {
+		if (c.lastState?.terminated?.reason === 'OOMKilled') {
+			lastTermReason = 'OOMKilled';
+			break;
+		}
+	}
+	if (!lastTermReason) {
+		for (const c of containers) {
+			const r = c.lastState?.terminated?.reason;
+			if (r) {
+				lastTermReason = r;
+				break;
+			}
+		}
+	}
 	return {
 		namespace: p.metadata?.namespace ?? '?',
 		name: p.metadata?.name ?? '?',
@@ -55,7 +72,8 @@ function podRow(p: ItemMin) {
 			: undefined,
 		node: (p.spec as { nodeName?: string })?.nodeName,
 		image: specContainers[0]?.image,
-		imagePullError
+		imagePullError,
+		lastTermReason
 	};
 }
 
@@ -76,7 +94,8 @@ function deployRow(d: ItemMin) {
 			: undefined,
 		node: undefined as string | undefined,
 		image,
-		imagePullError: false as boolean
+		imagePullError: false as boolean,
+		lastTermReason: undefined as string | undefined
 	};
 }
 
@@ -97,7 +116,8 @@ function ssRow(s: ItemMin) {
 			: undefined,
 		node: undefined as string | undefined,
 		image,
-		imagePullError: false as boolean
+		imagePullError: false as boolean,
+		lastTermReason: undefined as string | undefined
 	};
 }
 

@@ -21,7 +21,25 @@ export type WorkloadRow = {
 	// Set when any container is in ImagePullBackOff / ErrImagePull —
 	// surfaces inline on the workloads table without a click-through.
 	imagePullError?: boolean;
+	// Reason from the most recent termination across this pod's
+	// containers (lastState.terminated.reason). Useful primarily for
+	// surfacing OOMKilled inline; non-Pod rows don't set it.
+	lastTermReason?: string;
 };
+
+function pickLastTermReason(containers: { lastState?: { terminated?: { reason?: string } } }[]): string | undefined {
+	// Prefer OOMKilled if any container has it — that's the failure
+	// mode operators care most about. Otherwise return whatever the
+	// first terminated container reports.
+	for (const c of containers) {
+		if (c.lastState?.terminated?.reason === 'OOMKilled') return 'OOMKilled';
+	}
+	for (const c of containers) {
+		const r = c.lastState?.terminated?.reason;
+		if (r) return r;
+	}
+	return undefined;
+}
 
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
@@ -60,6 +78,7 @@ export const load: PageServerLoad = async (event) => {
 						const r = c.state?.waiting?.reason ?? '';
 						return r === 'ImagePullBackOff' || r === 'ErrImagePull';
 					});
+					const lastTermReason = pickLastTermReason(containers);
 					rows.push({
 						namespace: p.metadata?.namespace ?? '?',
 						name: p.metadata?.name ?? '?',
@@ -72,7 +91,8 @@ export const load: PageServerLoad = async (event) => {
 							: undefined,
 						node: p.spec?.nodeName,
 						image,
-						imagePullError
+						imagePullError,
+						lastTermReason
 					});
 				}
 			} catch (err) {
