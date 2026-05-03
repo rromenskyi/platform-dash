@@ -2,6 +2,11 @@
 # carries production deps + the compiled `build/` output. Pinned to
 # Node 22 LTS to match local dev (24 of which is in Bullseye nodejs).
 FROM node:22-alpine AS builder
+# CI passes GIT_SHA=${{ github.sha }} so the build can stamp itself.
+# Local builds without it fall back to `git rev-parse HEAD` in
+# vite.config.ts; if even git is unavailable, the literal "dev".
+ARG GIT_SHA=dev
+ENV GIT_SHA=$GIT_SHA
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
