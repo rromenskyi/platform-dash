@@ -11,7 +11,14 @@ const config = {
 		// Node adapter — runs as a long-lived Node process behind
 		// Traefik in the cluster. Picked over adapter-static because
 		// Auth.js needs server-side session cookies + token refresh.
-		adapter: adapter()
+		adapter: adapter(),
+		// Detect a redeploy from a stale tab. The client polls
+		// /_app/version.json every 60s; when the hash changes,
+		// `updated.current` flips true, and the layout's beforeNavigate
+		// hook does a full reload on the next nav so we don't try to
+		// hydrate new server data with old client chunks (404'd hashed
+		// assets, drifted data shapes, etc).
+		version: { pollInterval: 60_000 }
 	}
 };
 
