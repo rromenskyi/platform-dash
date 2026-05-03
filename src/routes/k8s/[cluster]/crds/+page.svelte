@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { age } from '$lib/k8s';
 	import { invalidateAll } from '$app/navigation';
+	import { createSort } from '$lib/sortable.svelte';
+	import type { CrdRow } from './+page.server';
 
 	let { data } = $props();
 
@@ -13,16 +15,30 @@
 	);
 	let groupFilter = $state<string>('all');
 
+	const sort = createSort<CrdRow, 'group' | 'kind' | 'version' | 'scope' | 'age'>({
+		keys: {
+			group: (r) => `${r.group}|${r.kind}`,
+			kind: (r) => r.kind,
+			version: (r) => r.version,
+			scope: (r) => r.scope,
+			age: (r) => Date.parse(r.creationTimestamp ?? '') || 0
+		},
+		defaultKey: 'group',
+		prefKey: 'platform-dash:crds:sort:v1'
+	});
+
 	const filtered = $derived(
-		data.rows.filter((r) => {
-			if (scopeFilter !== 'all' && r.scope !== scopeFilter) return false;
-			if (groupFilter !== 'all' && r.group !== groupFilter) return false;
-			if (q) {
-				const hay = `${r.group}/${r.kind}/${r.name}/${r.shortNames.join(',')}`.toLowerCase();
-				if (!hay.includes(q.toLowerCase())) return false;
-			}
-			return true;
-		})
+		data.rows
+			.filter((r) => {
+				if (scopeFilter !== 'all' && r.scope !== scopeFilter) return false;
+				if (groupFilter !== 'all' && r.group !== groupFilter) return false;
+				if (q) {
+					const hay = `${r.group}/${r.kind}/${r.name}/${r.shortNames.join(',')}`.toLowerCase();
+					if (!hay.includes(q.toLowerCase())) return false;
+				}
+				return true;
+			})
+			.sort(sort.compare)
 	);
 
 	async function refresh() {
@@ -78,12 +94,12 @@
 <table>
 	<thead>
 		<tr>
-			<th>Group</th>
-			<th>Kind</th>
-			<th>Version</th>
-			<th>Scope</th>
+			<th class="sortable" onclick={() => sort.toggle('group')}>Group<span class="arr">{sort.indicator('group')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('kind')}>Kind<span class="arr">{sort.indicator('kind')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('version')}>Version<span class="arr">{sort.indicator('version')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('scope')}>Scope<span class="arr">{sort.indicator('scope')}</span></th>
 			<th>Short names</th>
-			<th>Age</th>
+			<th class="sortable" onclick={() => sort.toggle('age')}>Age<span class="arr">{sort.indicator('age')}</span></th>
 		</tr>
 	</thead>
 	<tbody>
@@ -250,4 +266,8 @@
 		border-radius: 8px;
 		color: #fb7185;
 	}
+
+	th.sortable { cursor: pointer; user-select: none; }
+	th.sortable:hover { color: var(--fg); }
+	th .arr { display: inline-block; margin-left: 0.3rem; color: var(--accent); font-size: 0.85em; min-width: 0.6em; }
 </style>

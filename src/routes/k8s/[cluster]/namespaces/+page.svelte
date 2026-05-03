@@ -9,6 +9,7 @@
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
 	import Highlight from '$lib/Highlight.svelte';
 	import { rowClick } from '$lib/row-click';
+	import { createSort } from '$lib/sortable.svelte';
 
 	let { data } = $props();
 
@@ -34,8 +35,20 @@
 	$effect(() => { live.sync(); });
 	onDestroy(() => live.destroy());
 
+	const sort = createSort<NamespaceRow, 'name' | 'phase' | 'age'>({
+		keys: {
+			name: (r) => r.name,
+			phase: (r) => r.phase,
+			age: (r) => Date.parse(r.creationTimestamp ?? '') || 0
+		},
+		defaultKey: 'name',
+		prefKey: 'platform-dash:namespaces:sort:v1'
+	});
+
 	const filtered = $derived(
-		live.rows.filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))
+		live.rows
+			.filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))
+			.sort(sort.compare)
 	);
 
 	const kbd = createKbdNav({
@@ -68,10 +81,10 @@
 <table>
 	<thead>
 		<tr>
-			<th>Name</th>
-			<th>Phase</th>
+			<th class="sortable" onclick={() => sort.toggle('name')}>Name<span class="arr">{sort.indicator('name')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('phase')}>Phase<span class="arr">{sort.indicator('phase')}</span></th>
 			<th>Labels</th>
-			<th>Age</th>
+			<th class="sortable" onclick={() => sort.toggle('age')}>Age<span class="arr">{sort.indicator('age')}</span></th>
 			<th>Actions</th>
 		</tr>
 	</thead>
@@ -157,4 +170,7 @@
 	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
 	tr.clickable { cursor: pointer; }
 	tr.clickable:hover td { background: var(--bg-elev); }
+	th.sortable { cursor: pointer; user-select: none; }
+	th.sortable:hover { color: var(--fg); }
+	th .arr { display: inline-block; margin-left: 0.3rem; color: var(--accent); font-size: 0.85em; min-width: 0.6em; }
 </style>

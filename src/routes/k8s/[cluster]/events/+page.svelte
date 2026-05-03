@@ -10,6 +10,7 @@
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
 	import Highlight from '$lib/Highlight.svelte';
 	import type { EventRow } from './+page.server';
+	import { createSort } from '$lib/sortable.svelte';
 
 	let { data } = $props();
 
@@ -142,18 +143,35 @@
 					: null
 	);
 
+	const sort = createSort<EventRow, 'type' | 'namespace' | 'involved' | 'reason' | 'count' | 'lastSeen'>({
+		keys: {
+			type: (e) => e.type,
+			namespace: (e) => e.namespace,
+			involved: (e) => e.involved,
+			reason: (e) => e.reason,
+			count: (e) => e.count,
+			lastSeen: (e) => Date.parse(e.lastSeen ?? '') || 0
+		},
+		defaultKey: 'lastSeen',
+		defaultDir: 'desc',
+		prefKey: 'platform-dash:events:sort:v1'
+	});
+
 	const filtered = $derived(
-		rows.filter((e) => {
-			if (typeFilter !== 'all' && e.type !== typeFilter) return false;
-			if (rangeCutoffMs != null) {
-				const ts = Date.parse(e.lastSeen ?? '');
-				if (!Number.isFinite(ts) || now - ts > rangeCutoffMs) return false;
-			}
-			if (!q) return true;
-			const needle = q.toLowerCase();
-			const hay = `${e.namespace} ${e.involved} ${e.reason} ${e.message}`.toLowerCase();
-			return hay.includes(needle);
-		})
+		rows
+			.filter((e) => {
+				if (typeFilter !== 'all' && e.type !== typeFilter) return false;
+				if (rangeCutoffMs != null) {
+					const ts = Date.parse(e.lastSeen ?? '');
+					if (!Number.isFinite(ts) || now - ts > rangeCutoffMs) return false;
+				}
+				if (!q) return true;
+				const needle = q.toLowerCase();
+				const hay = `${e.namespace} ${e.involved} ${e.reason} ${e.message}`.toLowerCase();
+				return hay.includes(needle);
+			})
+			.slice()
+			.sort(sort.compare)
 	);
 
 	const kbd = createKbdNav({ rowCount: () => filtered.length });
@@ -191,13 +209,13 @@
 <table>
 	<thead>
 		<tr>
-			<th>Type</th>
-			<th>Namespace</th>
-			<th>Involved</th>
-			<th>Reason</th>
+			<th class="sortable" onclick={() => sort.toggle('type')}>Type<span class="arr">{sort.indicator('type')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('namespace')}>Namespace<span class="arr">{sort.indicator('namespace')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('involved')}>Involved<span class="arr">{sort.indicator('involved')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('reason')}>Reason<span class="arr">{sort.indicator('reason')}</span></th>
 			<th>Message</th>
-			<th class="num">Count</th>
-			<th>Last seen</th>
+			<th class="num sortable" onclick={() => sort.toggle('count')}>Count<span class="arr">{sort.indicator('count')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('lastSeen')}>Last seen<span class="arr">{sort.indicator('lastSeen')}</span></th>
 		</tr>
 	</thead>
 	<tbody>
@@ -249,4 +267,8 @@
 	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
 
 	.error { padding: 0.75rem 1rem; background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; border-radius: 8px; color: #fb7185; }
+
+	th.sortable { cursor: pointer; user-select: none; }
+	th.sortable:hover { color: var(--fg); }
+	th .arr { display: inline-block; margin-left: 0.3rem; color: var(--accent); font-size: 0.85em; min-width: 0.6em; }
 </style>
