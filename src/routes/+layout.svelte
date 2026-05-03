@@ -11,6 +11,7 @@
 	import Shortcuts from '$lib/Shortcuts.svelte';
 	import QuickSearch from '$lib/QuickSearch.svelte';
 	import { closeAll as closeAllLive } from '$lib/live-registry.svelte';
+	import { BUILD_SHA, BUILD_SHA_SHORT, BUILD_TIME, COMMIT_URL } from '$lib/build-info';
 
 	// Drop every active Live SSE before any client-side navigation, and
 	// force a hard reload if a redeploy was detected (kit.version
@@ -170,6 +171,13 @@
 		>{mobileSidebar ? '×' : '☰'}</button>
 	{/if}
 	<a class="brand" href="/">platform</a>
+	<a
+		class="build"
+		href={COMMIT_URL}
+		target="_blank"
+		rel="noopener"
+		title={`Build ${BUILD_SHA} — ${BUILD_TIME}`}
+	>{BUILD_SHA_SHORT}</a>
 	<nav class="topnav">
 		{#if session?.user && canRead}
 			{#if page.data.apiHealth}
@@ -368,6 +376,18 @@
 		letter-spacing: -0.01em;
 	}
 	.brand:hover { color: var(--accent-d); }
+
+	.build {
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		color: var(--muted);
+		padding: 0.1rem 0.4rem;
+		border: 1px solid var(--rule);
+		border-radius: 4px;
+		margin-left: 0.5rem;
+		text-decoration: none;
+	}
+	.build:hover { color: var(--fg); border-color: var(--muted); }
 
 	.topnav {
 		display: flex;
