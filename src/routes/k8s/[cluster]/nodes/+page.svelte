@@ -7,6 +7,7 @@
 
 	let refreshing = $state(false);
 	let openLabels = $state<Record<string, boolean>>({});
+	let openPods = $state<Record<string, boolean>>({});
 
 	async function refresh() {
 		if (refreshing) return;
@@ -60,6 +61,10 @@
 
 	function toggleLabels(name: string) {
 		openLabels = { ...openLabels, [name]: !openLabels[name] };
+	}
+
+	function togglePods(name: string) {
+		openPods = { ...openPods, [name]: !openPods[name] };
 	}
 
 	// Most-significant condition for the badge — Ready=False matters
@@ -199,6 +204,52 @@
 				</ul>
 			</div>
 		{/if}
+
+		<div class="section">
+			<button class="link" onclick={() => togglePods(n.name)}>
+				{openPods[n.name] ? '▾' : '▸'} Pods on this node ({n.pods.length}{#if n.pods.length !== n.usage.podsScheduled} of {n.usage.podsScheduled}{/if})
+			</button>
+			{#if openPods[n.name]}
+				{#if n.pods.length === 0}
+					<p class="muted small" style="margin-top: 0.5rem;">No pods visible to your role on this node.</p>
+				{:else}
+					<table class="pods-table">
+						<thead>
+							<tr>
+								<th>Namespace</th>
+								<th>Name</th>
+								<th>Status</th>
+								<th>Ready</th>
+								<th class="num">Restarts</th>
+								<th>Age</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each n.pods as p}
+								<tr class:row-bad={p.phase === 'Failed' || p.imagePullError || p.lastTermReason === 'OOMKilled'}>
+									<td class="mono small">{p.namespace}</td>
+									<td class="mono">
+										<a href="/k8s/{data.cluster}/pod/{p.namespace}/{p.name}">{p.name}</a>
+									</td>
+									<td>
+										<span class="phase phase-{p.phase.toLowerCase()}">{p.phase}</span>
+										{#if p.imagePullError}
+											<span class="warn-tag" title="ImagePullBackOff / ErrImagePull">ImagePull</span>
+										{/if}
+										{#if p.lastTermReason && p.lastTermReason !== 'Completed'}
+											<span class="warn-tag" title="lastState.terminated.reason">{p.lastTermReason}</span>
+										{/if}
+									</td>
+									<td class="mono small">{p.ready}</td>
+									<td class="num mono">{p.restarts}</td>
+									<td>{age(p.startedAt)}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{/if}
+			{/if}
+		</div>
 
 		<div class="section">
 			<button class="link" onclick={() => toggleLabels(n.name)}>
@@ -409,4 +460,59 @@
 	}
 	.kv dt { font-family: var(--font-mono); color: var(--muted); }
 	.kv dd { margin: 0; font-family: var(--font-mono); color: var(--fg); word-break: break-all; }
+
+	.pods-table {
+		width: 100%;
+		border-collapse: collapse;
+		margin-top: 0.5rem;
+		font-size: 0.85rem;
+	}
+	.pods-table th {
+		text-align: left;
+		padding: 0.4rem 0.6rem;
+		color: var(--muted);
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		font-weight: 500;
+		border-bottom: 1px solid var(--rule);
+	}
+	.pods-table th.num, .pods-table td.num { text-align: right; }
+	.pods-table td {
+		padding: 0.4rem 0.6rem;
+		border-bottom: 1px solid var(--rule);
+		color: var(--fg-soft);
+	}
+	.pods-table tr:last-child td { border-bottom: 0; }
+	.pods-table td.mono { font-family: var(--font-mono); color: var(--fg); }
+	.pods-table td.mono.small { font-size: 0.78rem; color: var(--fg-soft); }
+	.pods-table td.mono a { color: var(--fg); }
+	.pods-table td.mono a:hover { color: var(--accent); }
+	.pods-table tr.row-bad td { background: rgba(251, 113, 133, 0.04); }
+
+	.phase {
+		display: inline-block;
+		padding: 0.05rem 0.45rem;
+		border-radius: 4px;
+		font-size: 0.7rem;
+		font-family: var(--font-mono);
+		border: 1px solid var(--rule);
+		color: var(--fg-soft);
+	}
+	.phase-running { color: #6ee7b7; border-color: rgba(110, 231, 183, 0.4); }
+	.phase-pending { color: #fcd34d; border-color: rgba(252, 211, 77, 0.4); }
+	.phase-failed { color: #fb7185; border-color: rgba(251, 113, 133, 0.5); }
+	.phase-succeeded { color: var(--muted); }
+	.phase-unknown { color: #fb7185; }
+
+	.warn-tag {
+		display: inline-block;
+		margin-left: 0.3rem;
+		padding: 0.05rem 0.4rem;
+		font-size: 0.65rem;
+		font-family: var(--font-mono);
+		color: #fb7185;
+		border: 1px solid rgba(251, 113, 133, 0.5);
+		border-radius: 3px;
+	}
 </style>
