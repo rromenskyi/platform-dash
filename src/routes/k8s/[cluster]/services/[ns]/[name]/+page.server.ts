@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { auditScopedTo } from '$lib/audit.server';
+import { requireRead } from '$lib/authz';
 
 export type SvcPort = {
 	name?: string;
@@ -61,6 +62,8 @@ async function listScopedEvents(
 
 export const load: PageServerLoad = async (event) => {
 	const { cluster, ns, name } = event.params;
+	const session = await event.locals.auth();
+	requireRead(session, cluster, ns);
 
 	let svc;
 	try {

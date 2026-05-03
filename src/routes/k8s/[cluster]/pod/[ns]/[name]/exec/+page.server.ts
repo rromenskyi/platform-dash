@@ -8,7 +8,7 @@ export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
 	const { cluster, ns, name } = event.params;
 	if (!session?.user) throw redirect(303, '/');
-	if (!canWrite(session, cluster)) {
+	if (!canWrite(session, cluster, ns)) {
 		// Match the http-test gate: SRE / readers can't open shells.
 		// Audit logs would be polluted with denials otherwise; bounce.
 		throw redirect(303, `/k8s/${cluster}/pod/${ns}/${name}`);

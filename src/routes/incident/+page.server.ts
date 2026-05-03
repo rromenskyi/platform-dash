@@ -1,5 +1,11 @@
 import type { PageServerLoad } from './$types';
-import { canRead, requireRead } from '$lib/authz';
+import {
+	canRead,
+	requireRead,
+	hasAnyNamespaceRole,
+	accessibleNamespaces
+} from '$lib/authz';
+import { redirect } from '@sveltejs/kit';
 import { listClusters } from '$lib/clusters.server';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
@@ -68,9 +74,16 @@ const OOM_WINDOW_MS = 24 * 60 * 60 * 1000;
 // three list calls in parallel; clusters fan out in parallel too.
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
-	requireRead(session);
+	if (!session?.user) throw redirect(303, '/');
+	// Allow operators with only namespace-scoped roles — the page
+	// filters per-cluster sections to their accessible namespaces.
+	if (!canRead(session) && !listClusters().some((c) => canRead(session, c)) && !hasAnyNamespaceRole(session)) {
+		requireRead(session);
+	}
 
-	const clusters = listClusters().filter((c) => canRead(session, c));
+	const clusters = listClusters().filter(
+		(c) => canRead(session, c) || hasAnyNamespaceRole(session)
+	);
 
 	const reports: ClusterReport[] = await Promise.all(
 		clusters.map(async (cluster): Promise<ClusterReport> => {
@@ -85,10 +98,18 @@ export const load: PageServerLoad = async (event) => {
 					)
 				]);
 
+				const accessible = accessibleNamespaces(session, cluster);
+				const inScope = (ns: string | undefined): boolean => {
+					if (!ns) return false;
+					if (accessible === 'all') return true;
+					return accessible.includes(ns);
+				};
+
 				const failingPods: FailingPod[] = [];
 				const oomKilled: OomPod[] = [];
 				const cutoff = Date.now() - OOM_WINDOW_MS;
 				for (const p of pods.items) {
+					if (!inScope(p.metadata?.namespace)) continue;
 					const containers = p.status?.containerStatuses ?? [];
 					const restarts = containers.reduce((acc, c) => acc + (c.restartCount ?? 0), 0);
 					const phase = p.status?.phase ?? '?';
@@ -176,6 +197,9 @@ export const load: PageServerLoad = async (event) => {
 
 				const warnRaw = events.items
 					.filter((e) => e.type === 'Warning')
+					.filter((e) =>
+						inScope(e.metadata?.namespace ?? e.involvedObject?.namespace)
+					)
 					.map((e) => ({
 						cluster,
 						namespace: e.metadata?.namespace ?? e.involvedObject?.namespace ?? '?',

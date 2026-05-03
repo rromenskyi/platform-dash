@@ -18,11 +18,11 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	if (!isKnownCluster(cluster)) {
 		throw error(404, `Unknown cluster "${cluster}"`);
 	}
-	// Pass cluster so a `cluster_<name>_sre` operator can stream logs
-	// from their cluster — without it, only platform_* roles got
-	// through, locking out cluster-scoped readers entirely.
-	if (!canRead(session, cluster)) {
-		throw error(403, 'read role for this cluster required');
+	// Pass cluster + ns so cluster-scoped and namespace-scoped readers
+	// both get through. Without ns, namespace_<x>_sre operators would
+	// be locked out of pods in their own namespace.
+	if (!canRead(session, cluster, ns)) {
+		throw error(403, 'read role for this cluster or namespace required');
 	}
 
 	const containerName = url.searchParams.get('container') || '';

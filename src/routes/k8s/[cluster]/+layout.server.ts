@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
-import { requireRead, canWrite } from '$lib/authz';
+import { requireRead, canWrite, accessibleNamespaces, writableNamespaces } from '$lib/authz';
 import { core } from '$lib/k8s.server';
 import { isKnownCluster, listClusters } from '$lib/clusters.server';
 import { time } from '$lib/k8s-metrics.server';
@@ -69,9 +69,19 @@ export const load: LayoutServerLoad = async (event) => {
 	if (!isKnownCluster(cluster)) {
 		throw error(404, `Unknown cluster "${cluster}". Configured: ${listClusters().join(', ')}`);
 	}
-	requireRead(session, cluster);
+	requireRead(session, cluster, undefined, { forCluster: true });
 
-	const namespaces = listNs(cluster);
+	const allNamespaces = listNs(cluster);
+	// For ns-only roles, hide every namespace they can't read so the
+	// sidebar selector + cluster ns list don't even surface them.
+	// Cluster-wide / global roles get the full list ('all').
+	const accessible = accessibleNamespaces(session, cluster);
+	const namespaces =
+		accessible === 'all' ? allNamespaces : allNamespaces.filter((n) => accessible.includes(n));
+	const accessibleList = accessible === 'all' ? null : accessible;
+
+	const writable = writableNamespaces(session, cluster);
+	const writableList = writable === 'all' ? null : writable;
 
 	return {
 		session,
@@ -79,6 +89,14 @@ export const load: LayoutServerLoad = async (event) => {
 		cluster,
 		clusters: listClusters(),
 		namespaces,
+		// `null` means cluster-wide / global access; otherwise the
+		// concrete list of namespaces the user has roles for. UI uses
+		// this to lock the ns selector for ns-only operators.
+		accessibleNamespaces: accessibleList,
+		// `null` means cluster-wide write; otherwise the list of
+		// namespaces the user can write to. Used by list pages to
+		// decide which row-level action buttons to show.
+		writableNamespaces: writableList,
 		ns: event.url.searchParams.get('ns') || ''
 	};
 };

@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core, apps, apiextensions, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { accessibleNamespaces } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
@@ -41,22 +42,40 @@ export const load: PageServerLoad = async (event) => {
 				})
 		]);
 
+		const accessible = accessibleNamespaces(session, cluster);
+		const inScope = (ns: string | undefined): boolean => {
+			if (!ns) return false;
+			if (accessible === 'all') return true;
+			return accessible.includes(ns);
+		};
+
 		const nodes = nodesRes.items;
 		const nodesReady = nodes.filter((n) =>
 			n.status?.conditions?.some((c) => c.type === 'Ready' && c.status === 'True')
 		).length;
 
-		const pods = podsRes.items;
+		const pods =
+			accessible === 'all'
+				? podsRes.items
+				: podsRes.items.filter((p) => inScope(p.metadata?.namespace));
 		const phaseCount = (phase: string) => pods.filter((p) => p.status?.phase === phase).length;
 
-		const deps = depsRes.items;
+		const deps =
+			accessible === 'all'
+				? depsRes.items
+				: depsRes.items.filter((d) => inScope(d.metadata?.namespace));
 		const depsReady = deps.filter(
 			(d) => (d.status?.readyReplicas ?? 0) === (d.spec?.replicas ?? 0)
 		).length;
 
+		const visibleNamespaces =
+			accessible === 'all'
+				? nsRes.items.length
+				: nsRes.items.filter((n) => accessible.includes(n.metadata?.name ?? '')).length;
+
 		summary = {
 			nodes: { ready: nodesReady, total: nodes.length },
-			namespaces: nsRes.items.length,
+			namespaces: visibleNamespaces,
 			pods: {
 				running: phaseCount('Running'),
 				pending: phaseCount('Pending'),
@@ -64,7 +83,10 @@ export const load: PageServerLoad = async (event) => {
 				total: pods.length
 			},
 			deployments: { ready: depsReady, total: deps.length },
-			crds: crdsRes.items.length
+			// CRD definitions are cluster-scoped — show the count to
+			// cluster-wide readers; ns-only operators see 0 because
+			// they can't act on CRDs at the definition level anyway.
+			crds: accessible === 'all' ? crdsRes.items.length : 0
 		};
 	} catch (err) {
 		// Surface the failure to the page rather than 500 — RBAC
@@ -89,7 +111,12 @@ export const load: PageServerLoad = async (event) => {
 		const ml = await time(`${cluster}/getPodMetricsAll`, () =>
 			metrics(cluster).getPodMetrics()
 		);
-		const rows = ml.items.map((it) => {
+		const accessible = accessibleNamespaces(session, cluster);
+		const items =
+			accessible === 'all'
+				? ml.items
+				: ml.items.filter((it) => accessible.includes(it.metadata.namespace ?? ''));
+		const rows = items.map((it) => {
 			let cpuMilli = 0;
 			let memBytes = 0;
 			for (const c of it.containers) {

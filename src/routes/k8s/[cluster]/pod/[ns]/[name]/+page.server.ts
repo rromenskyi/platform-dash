@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { auditScopedTo } from '$lib/audit.server';
+import { requireRead, canWrite } from '$lib/authz';
 
 export type ContainerUsage = {
 	cpu?: string;
@@ -38,6 +39,9 @@ export const load: PageServerLoad = async (event) => {
 	const ns = event.params.ns;
 	const name = event.params.name;
 	const cluster = event.params.cluster;
+
+	const session = await event.locals.auth();
+	requireRead(session, cluster, ns);
 
 	let pod;
 	try {
@@ -201,6 +205,11 @@ export const load: PageServerLoad = async (event) => {
 		events,
 		eventsError,
 		metricsAvailable,
-		scopedAudit
+		scopedAudit,
+		// ns-aware write flag — the layout's `canWrite` is cluster-wide
+		// only, so for namespace_<ns>_admin operators it would be false
+		// and the "shell" / "delete" buttons would hide. This grants
+		// the buttons to ns-admins for their own namespace.
+		canWriteHere: canWrite(session, cluster, ns)
 	};
 };

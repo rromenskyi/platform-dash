@@ -6,7 +6,7 @@
 	import { page } from '$app/state';
 
 	let { data } = $props();
-	let canWrite = $derived(!!page.data.canWrite);
+	let canWrite = $derived(!!(data.canWriteHere ?? page.data.canWrite));
 
 	// Subset of summary fields are kind-specific (Deployment has no
 	// currentReplicas, DaemonSet uses desiredReplicas, etc). Read with

@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { apiextensions, customObjects } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { canRead, accessibleNamespaces } from '$lib/authz';
 
 export type CrdVersionInfo = {
 	name: string;
@@ -78,38 +79,72 @@ export const load: PageServerLoad = async (event) => {
 	// — only meaningful for Namespaced CRDs; cluster-scoped objects
 	// ignore it.
 	const nsFilter = event.url.searchParams.get('ns') || '';
+	const accessible = accessibleNamespaces(session, cluster);
+	// Cluster-scoped CRD instance list is hidden from ns-only operators
+	// — they can see the definition (it's metadata) but not who else
+	// owns instances of it.
+	const hideClusterScopedInstances = scope !== 'Namespaced' && accessible !== 'all';
 
 	const servingVersion = pickServingVersion(versions);
-	if (servingVersion) {
+	if (servingVersion && !hideClusterScopedInstances) {
 		try {
-			// CustomObjectsApi returns `unknown` because the schema is dynamic.
-			// We only touch metadata here, which every k8s object guarantees.
-			const res =
-				scope === 'Namespaced'
-					? nsFilter
-						? await time(`${cluster}/listNamespacedCustomObject`, () =>
-								customObjects(cluster).listNamespacedCustomObject({
-									group,
-									version: servingVersion,
-									namespace: nsFilter,
-									plural
-								})
-							)
-						: await time(`${cluster}/listCustomObjectForAllNamespaces`, () =>
-								customObjects(cluster).listCustomObjectForAllNamespaces({
-									group,
-									version: servingVersion,
-									plural
-								})
-							)
-					: await time(`${cluster}/listClusterCustomObject`, () =>
-							customObjects(cluster).listClusterCustomObject({
-								group,
-								version: servingVersion,
-								plural
-							})
-						);
-			const items = (res as { items?: Array<Record<string, unknown>> }).items ?? [];
+			type ListRes = { items?: Array<Record<string, unknown>> };
+			let items: Array<Record<string, unknown>> = [];
+			if (scope === 'Namespaced') {
+				if (nsFilter) {
+					// Operator picked a single ns — verify they can read it.
+					if (!canRead(session, cluster, nsFilter)) {
+						throw error(403, `no read role for namespace "${nsFilter}"`);
+					}
+					const res = (await time(`${cluster}/listNamespacedCustomObject`, () =>
+						customObjects(cluster).listNamespacedCustomObject({
+							group,
+							version: servingVersion,
+							namespace: nsFilter,
+							plural
+						})
+					)) as ListRes;
+					items = res.items ?? [];
+				} else if (accessible === 'all') {
+					const res = (await time(`${cluster}/listCustomObjectForAllNamespaces`, () =>
+						customObjects(cluster).listCustomObjectForAllNamespaces({
+							group,
+							version: servingVersion,
+							plural
+						})
+					)) as ListRes;
+					items = res.items ?? [];
+				} else {
+					// ns-only — fan out across the namespaces they can read.
+					const lists = await Promise.all(
+						accessible.map(async (n): Promise<Array<Record<string, unknown>>> => {
+							try {
+								const r = (await time(`${cluster}/listNamespacedCustomObject(${n})`, () =>
+									customObjects(cluster).listNamespacedCustomObject({
+										group,
+										version: servingVersion,
+										namespace: n,
+										plural
+									})
+								)) as ListRes;
+								return r.items ?? [];
+							} catch {
+								return [];
+							}
+						})
+					);
+					items = lists.flat();
+				}
+			} else {
+				const res = (await time(`${cluster}/listClusterCustomObject`, () =>
+					customObjects(cluster).listClusterCustomObject({
+						group,
+						version: servingVersion,
+						plural
+					})
+				)) as ListRes;
+				items = res.items ?? [];
+			}
 			instances = items.map((it) => {
 				const meta = (it.metadata ?? {}) as {
 					name?: string;
@@ -152,6 +187,7 @@ export const load: PageServerLoad = async (event) => {
 			storageSchema
 		},
 		instances,
-		instancesError
+		instancesError,
+		hideClusterScopedInstances
 	};
 };

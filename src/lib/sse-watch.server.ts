@@ -33,8 +33,16 @@ export async function buildWatchResponse(
 	const session = await locals.auth();
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
-	if (!canRead(session, cluster)) throw error(403, 'read role required');
 	const ns = url.searchParams.get('ns') || '';
+	// Pass ns so namespace-scoped readers stream their own ns. A
+	// missing ns falls back to a cluster-wide read role (global or
+	// cluster_<x>_*); ns-only operators without ns get 403, since
+	// streaming cluster-wide would cross their boundary.
+	if (!canRead(session, cluster, ns || undefined)) {
+		// ns-only operators must include `?ns=<their-ns>` — without it,
+		// the stream would be cluster-wide and cross their boundary.
+		throw error(403, 'read role required (cluster-wide or matching ?ns=)');
+	}
 	const spec = specBuilder(cluster, ns);
 	const w = new Watch(getKubeConfig(cluster));
 	const encoder = new TextEncoder();

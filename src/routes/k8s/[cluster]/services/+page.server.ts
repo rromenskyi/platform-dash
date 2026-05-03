@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { accessibleNamespaces } from '$lib/authz';
 
 export type SvcRow = {
 	namespace: string;
@@ -26,8 +27,10 @@ function fmtPorts(ports: Array<{ port?: number; targetPort?: number | string; pr
 }
 
 export const load: PageServerLoad = async (event) => {
+	const session = await event.locals.auth();
 	const cluster = event.params.cluster;
 	const ns = event.url.searchParams.get('ns') || '';
+	const accessible = accessibleNamespaces(session, cluster);
 	let rows: SvcRow[] = [];
 	let error: string | null = null;
 	try {
@@ -39,6 +42,11 @@ export const load: PageServerLoad = async (event) => {
 					core(cluster).listServiceForAllNamespaces()
 				);
 		rows = res.items
+			.filter((s) => {
+				if (accessible === 'all') return true;
+				const n = s.metadata?.namespace;
+				return !!n && accessible.includes(n);
+			})
 			.map((s) => {
 				const ext: string[] = [];
 				if (s.spec?.externalIPs) ext.push(...s.spec.externalIPs);

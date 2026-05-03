@@ -35,9 +35,6 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const session = await locals.auth();
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
-	if (!canWrite(session, cluster)) {
-		throw error(403, 'platform_admin or cluster_<name>_admin role required');
-	}
 
 	const reqBody = (await request.json()) as {
 		crdName?: string;
@@ -47,6 +44,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	};
 	if (!reqBody.crdName || !reqBody.name || !reqBody.body) {
 		throw error(400, 'crdName, name and body are required');
+	}
+	// CRD scope hasn't been resolved yet — we re-check below once we
+	// know whether the target is namespaced. Cluster-scoped writes
+	// require cluster_admin or platform_admin (no ns can grant it).
+	if (!canWrite(session, cluster, reqBody.namespace)) {
+		throw error(403, 'platform_admin, cluster_<x>_admin, or namespace_<x>_admin role required');
 	}
 
 	let parsed: Record<string, unknown>;
@@ -79,6 +82,13 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	}
 	if (scope !== 'Namespaced' && reqBody.namespace) {
 		throw error(400, `${reqBody.crdName} is cluster-scoped — namespace must not be set`);
+	}
+	// Defensive re-check now that scope is known. For a cluster-scoped
+	// CRD a namespace-only role must NOT be sufficient — re-call
+	// canWrite without the namespace arg so only cluster/global
+	// admins pass.
+	if (scope !== 'Namespaced' && !canWrite(session, cluster)) {
+		throw error(403, `cluster-scoped ${reqBody.crdName} requires cluster_<x>_admin or platform_admin`);
 	}
 
 	const auditBase = {

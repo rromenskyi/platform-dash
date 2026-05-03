@@ -65,6 +65,20 @@
 	// buttons entirely for sre / no-role rather than greying — fewer
 	// affordances reduces accidental clicks under stress.
 	const canWrite = $derived(!!page.data.canWrite);
+	// Per-row write predicate. For namespace-scoped admins the cluster-
+	// wide canWrite above is false but they can still act on rows in
+	// their own namespaces; for cluster admins / platform admins it's
+	// always true.
+	const writableNs = $derived(
+		(page.data.writableNamespaces as string[] | null | undefined) ?? null
+	);
+	function canWriteRow(ns: string): boolean {
+		if (canWrite) return true;
+		return !!writableNs && writableNs.includes(ns);
+	}
+	// Show the bulk-action / checkbox column when the operator can
+	// write to ANYTHING — cluster-wide or any namespace.
+	const canWriteAnything = $derived(canWrite || (writableNs && writableNs.length > 0));
 
 	// Live mode keeps a local row map keyed by `${kind}|${ns}|${name}`
 	// so watch deltas can splice in place. The initial rows from the
@@ -544,7 +558,7 @@
 	<span class="hint-item">press <kbd>?</kbd> for keyboard shortcuts</span>
 </p>
 
-{#if canWrite && selected.size > 0}
+{#if canWriteAnything && selected.size > 0}
 	<div class="bulk-bar">
 		<span class="bulk-count">{selected.size} selected</span>
 		{#if bulkRestartable.length > 0}
@@ -564,7 +578,7 @@
 <table>
 	<thead>
 		<tr>
-			{#if canWrite}
+			{#if canWriteAnything}
 				<th class="check">
 					<input
 						type="checkbox"
@@ -597,13 +611,15 @@
 				class:clickable={r.kind === 'Pod'}
 				onclick={r.kind === 'Pod' ? rowClick(`/k8s/${data.cluster}/pod/${r.namespace}/${r.name}`) : undefined}
 			>
-				{#if canWrite}
+				{#if canWriteAnything}
 					<td class="check">
-						<input
-							type="checkbox"
-							checked={isSelected(r)}
-							onchange={() => toggleSelected(r)}
-						/>
+						{#if canWriteRow(r.namespace)}
+							<input
+								type="checkbox"
+								checked={isSelected(r)}
+								onchange={() => toggleSelected(r)}
+							/>
+						{/if}
 					</td>
 				{/if}
 				<td><Highlight text={r.namespace} {q} /></td>
@@ -634,7 +650,7 @@
 				</td>
 				<td class="node">{#if r.node}<a href="/k8s/{data.cluster}/nodes#{r.node}">{r.node}</a>{:else}<span class="muted">—</span>{/if}</td>
 				<td>{age(r.creationTimestamp)}</td>
-				{#if canWrite}
+				{#if canWriteRow(r.namespace)}
 					<td class="actions">
 						<KubectlMenu target={{ cluster: data.cluster, kind: r.kind, namespace: r.namespace, name: r.name }} />
 						{#if r.kind === 'Deployment' || r.kind === 'StatefulSet'}

@@ -15,11 +15,16 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	const session = await locals.auth();
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
-	if (!canRead(session, cluster)) throw error(403, 'read role required');
 
 	const ns = url.searchParams.get('ns');
 	const name = url.searchParams.get('name');
 	const kind = url.searchParams.get('kind') || 'Pod';
+
+	// ns-only operators must scope to their own ns — a cluster-wide
+	// /events stream without ns crosses their boundary.
+	if (!canRead(session, cluster, ns ?? undefined)) {
+		throw error(403, 'read role required (cluster-wide or matching ?ns=)');
+	}
 
 	const path = ns ? `/api/v1/namespaces/${ns}/events` : `/api/v1/events`;
 	const queryParams: Record<string, string> = {};

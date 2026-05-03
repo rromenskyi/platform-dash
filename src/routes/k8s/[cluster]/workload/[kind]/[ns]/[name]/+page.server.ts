@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { canRead } from '$lib/authz';
+import { canRead, canWrite } from '$lib/authz';
 import { core, apps } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { auditScopedTo } from '$lib/audit.server';
@@ -46,11 +46,10 @@ export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
 	if (!session?.user) throw redirect(303, '/');
 	const cluster = event.params.cluster;
-	if (!canRead(session, cluster)) throw redirect(303, '/');
-
 	const kind = event.params.kind;
 	const ns = event.params.ns;
 	const name = event.params.name;
+	if (!canRead(session, cluster, ns)) throw redirect(303, '/');
 	if (!SUPPORTED.has(kind)) {
 		throw error(400, `Unsupported workload kind "${kind}". Use one of: ${[...SUPPORTED].join(', ')}`);
 	}
@@ -244,6 +243,7 @@ export const load: PageServerLoad = async (event) => {
 		podsError,
 		events,
 		eventsError,
-		scopedAudit
+		scopedAudit,
+		canWriteHere: canWrite(session, cluster, ns)
 	};
 };

@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { batch } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { accessibleNamespaces } from '$lib/authz';
 
 export type JobRow = {
 	namespace: string;
@@ -15,8 +16,10 @@ export type JobRow = {
 };
 
 export const load: PageServerLoad = async (event) => {
+	const session = await event.locals.auth();
 	const cluster = event.params.cluster;
 	const ns = event.url.searchParams.get('ns') || '';
+	const accessible = accessibleNamespaces(session, cluster);
 	let rows: JobRow[] = [];
 	let error: string | null = null;
 	try {
@@ -28,6 +31,11 @@ export const load: PageServerLoad = async (event) => {
 					batch(cluster).listJobForAllNamespaces()
 				);
 		rows = res.items
+			.filter((j) => {
+				if (accessible === 'all') return true;
+				const n = j.metadata?.namespace;
+				return !!n && accessible.includes(n);
+			})
 			.map((j) => {
 				const completions = j.spec?.completions ?? 1;
 				const succeeded = j.status?.succeeded ?? 0;
