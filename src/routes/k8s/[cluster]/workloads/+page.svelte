@@ -616,7 +616,14 @@
 					{/if}
 				</td>
 				<td>{r.ready}</td>
-				<td><span class="status status-{r.status.toLowerCase()}">{r.status}</span></td>
+				<td>
+					<span class="status status-{r.status.toLowerCase()}">{r.status}</span>
+					{#if r.lastTermReason === 'OOMKilled'}
+						<span class="reason-pill oom" title="Last termination: OOMKilled — container hit its memory limit (or the node had system OOM)">OOM</span>
+					{:else if r.lastTermReason}
+						<span class="reason-pill" title="Last termination reason: {r.lastTermReason}">{r.lastTermReason}</span>
+					{/if}
+				</td>
 				<td>{r.restarts || ''}</td>
 				<td class="image">
 					{#if r.image}
@@ -862,6 +869,25 @@
 	.status-succeeded { color: #93c5fd; }
 	.status-failed, .status-error, .status-crashloopbackoff, .status-unknown {
 		color: #fb7185;
+	}
+
+	.reason-pill {
+		display: inline-block;
+		font-size: 0.68rem;
+		padding: 0.05rem 0.4rem;
+		margin-left: 0.35rem;
+		border-radius: 999px;
+		background: var(--bg-elev);
+		border: 1px solid var(--rule);
+		color: var(--fg-soft);
+		letter-spacing: 0.04em;
+		vertical-align: middle;
+	}
+	.reason-pill.oom {
+		background: rgba(251, 113, 133, 0.15);
+		border-color: rgba(251, 113, 133, 0.4);
+		color: #fb7185;
+		font-weight: 600;
 	}
 
 	.error {
