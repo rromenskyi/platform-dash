@@ -31,10 +31,12 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 	});
 }
 
-function listNs(cluster: string): string[] {
+async function listNs(cluster: string): Promise<string[]> {
 	const cached = nsCache.get(cluster);
 	const fresh = cached && Date.now() - cached.at < NS_TTL_MS;
-	if (!fresh && !nsInFlight.has(cluster)) {
+	if (fresh) return cached!.namespaces;
+
+	if (!nsInFlight.has(cluster)) {
 		const p = withTimeout(
 			time(`${cluster}/listNamespace`, () => core(cluster).listNamespace()),
 			NS_TIMEOUT_MS,
@@ -57,7 +59,17 @@ function listNs(cluster: string): string[] {
 			});
 		nsInFlight.set(cluster, p);
 	}
-	return cached?.namespaces ?? [];
+
+	// Stale cache: return immediately, the in-flight refresh will warm
+	// the cache for the next request. Cold cache: await the in-flight
+	// fetch (already capped at NS_TIMEOUT_MS) so the namespace selector
+	// has options on the very first nav after pod restart.
+	if (cached) return cached.namespaces;
+	try {
+		return await nsInFlight.get(cluster)!;
+	} catch {
+		return [];
+	}
 }
 
 // One gate for every /k8s/[cluster]/* route. Validates the cluster
@@ -71,7 +83,7 @@ export const load: LayoutServerLoad = async (event) => {
 	}
 	requireRead(session, cluster, undefined, { forCluster: true });
 
-	const allNamespaces = listNs(cluster);
+	const allNamespaces = await listNs(cluster);
 	// For ns-only roles, hide every namespace they can't read so the
 	// sidebar selector + cluster ns list don't even surface them.
 	// Cluster-wide / global roles get the full list ('all').
