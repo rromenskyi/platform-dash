@@ -10,6 +10,7 @@
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
 	import Highlight from '$lib/Highlight.svelte';
 	import { rowClick } from '$lib/row-click';
+	import { createSort } from '$lib/sortable.svelte';
 
 	let { data } = $props();
 
@@ -54,12 +55,27 @@
 	$effect(() => { const _ns = page.url.searchParams.get('ns'); void _ns; live.sync(); });
 	onDestroy(() => live.destroy());
 
+	const sort = createSort<SvcRow, 'namespace' | 'name' | 'type' | 'clusterIP' | 'externalIP' | 'age'>({
+		keys: {
+			namespace: (r) => `${r.namespace}|${r.name}`,
+			name: (r) => r.name,
+			type: (r) => r.type,
+			clusterIP: (r) => r.clusterIP,
+			externalIP: (r) => r.externalIP,
+			age: (r) => Date.parse(r.creationTimestamp ?? '') || 0
+		},
+		defaultKey: 'namespace',
+		prefKey: 'platform-dash:services:sort:v1'
+	});
+
 	const filtered = $derived(
-		live.rows.filter((r) => {
-			if (typeFilter !== 'all' && r.type !== typeFilter) return false;
-			if (q && !`${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase())) return false;
-			return true;
-		})
+		live.rows
+			.filter((r) => {
+				if (typeFilter !== 'all' && r.type !== typeFilter) return false;
+				if (q && !`${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase())) return false;
+				return true;
+			})
+			.sort(sort.compare)
 	);
 
 	const kbd = createKbdNav({
@@ -95,7 +111,16 @@
 <p class="muted small">{filtered.length} of {live.rows.length}</p>
 
 <table>
-	<thead><tr><th>Namespace</th><th>Name</th><th>Type</th><th>ClusterIP</th><th>External</th><th>Ports</th><th>Age</th><th>Actions</th></tr></thead>
+	<thead><tr>
+		<th class="sortable" onclick={() => sort.toggle('namespace')}>Namespace<span class="arr">{sort.indicator('namespace')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('name')}>Name<span class="arr">{sort.indicator('name')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('type')}>Type<span class="arr">{sort.indicator('type')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('clusterIP')}>ClusterIP<span class="arr">{sort.indicator('clusterIP')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('externalIP')}>External<span class="arr">{sort.indicator('externalIP')}</span></th>
+		<th>Ports</th>
+		<th class="sortable" onclick={() => sort.toggle('age')}>Age<span class="arr">{sort.indicator('age')}</span></th>
+		<th>Actions</th>
+	</tr></thead>
 	<tbody>
 		{#each filtered as r, i}
 			<tr class:row-focused={i === kbd.focusedIdx} class="clickable" onclick={rowClick(`/k8s/${data.cluster}/services/${r.namespace}/${r.name}`)}>
@@ -143,4 +168,7 @@
 	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
 	tr.clickable { cursor: pointer; }
 	tr.clickable:hover td { background: var(--bg-elev); }
+	th.sortable { cursor: pointer; user-select: none; }
+	th.sortable:hover { color: var(--fg); }
+	th .arr { display: inline-block; margin-left: 0.3rem; color: var(--accent); font-size: 0.85em; min-width: 0.6em; }
 </style>

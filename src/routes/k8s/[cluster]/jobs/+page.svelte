@@ -2,10 +2,30 @@
 	import { age } from '$lib/k8s';
 	import { invalidateAll } from '$app/navigation';
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
+	import { createSort } from '$lib/sortable.svelte';
+	import type { JobRow } from './+page.server';
+
 	let { data } = $props();
 	let q = $state('');
+
+	const sort = createSort<JobRow, 'namespace' | 'name' | 'active' | 'failed' | 'started' | 'finished'>({
+		keys: {
+			namespace: (r) => `${r.namespace}|${r.name}`,
+			name: (r) => r.name,
+			active: (r) => r.active,
+			failed: (r) => r.failed,
+			started: (r) => Date.parse(r.startTime ?? '') || 0,
+			finished: (r) => Date.parse(r.completionTime ?? '') || 0
+		},
+		defaultKey: 'started',
+		defaultDir: 'desc',
+		prefKey: 'platform-dash:jobs:sort:v1'
+	});
+
 	const filtered = $derived(
-		data.rows.filter((r) => !q || `${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase()))
+		data.rows
+			.filter((r) => !q || `${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase()))
+			.sort(sort.compare)
 	);
 </script>
 
@@ -23,7 +43,16 @@
 <p class="muted small">{filtered.length} of {data.rows.length}</p>
 
 <table>
-	<thead><tr><th>Namespace</th><th>Name</th><th>Completions</th><th class="num">Active</th><th class="num">Failed</th><th>Started</th><th>Finished</th><th>Actions</th></tr></thead>
+	<thead><tr>
+		<th class="sortable" onclick={() => sort.toggle('namespace')}>Namespace<span class="arr">{sort.indicator('namespace')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('name')}>Name<span class="arr">{sort.indicator('name')}</span></th>
+		<th>Completions</th>
+		<th class="num sortable" onclick={() => sort.toggle('active')}>Active<span class="arr">{sort.indicator('active')}</span></th>
+		<th class="num sortable" onclick={() => sort.toggle('failed')}>Failed<span class="arr">{sort.indicator('failed')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('started')}>Started<span class="arr">{sort.indicator('started')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('finished')}>Finished<span class="arr">{sort.indicator('finished')}</span></th>
+		<th>Actions</th>
+	</tr></thead>
 	<tbody>
 		{#each filtered as r}
 			<tr class:bad={r.failed > 0} class:active={r.active > 0}>
@@ -57,4 +86,7 @@
 	td.bad-cell { color: #fb7185; font-weight: 500; }
 	td.mono { color: var(--fg); font-family: var(--font-mono); font-size: 0.85em; }
 	.error { padding: 0.75rem 1rem; background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; border-radius: 8px; color: #fb7185; }
+	th.sortable { cursor: pointer; user-select: none; }
+	th.sortable:hover { color: var(--fg); }
+	th .arr { display: inline-block; margin-left: 0.3rem; color: var(--accent); font-size: 0.85em; min-width: 0.6em; }
 </style>

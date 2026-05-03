@@ -10,6 +10,7 @@
 	import { createKbdNav } from '$lib/kbd-nav.svelte';
 	import Highlight from '$lib/Highlight.svelte';
 	import { rowClick } from '$lib/row-click';
+	import { createSort } from '$lib/sortable.svelte';
 
 	let { data } = $props();
 
@@ -50,8 +51,21 @@
 	});
 	onDestroy(() => live.destroy());
 
+	const sort = createSort<CmRow, 'namespace' | 'name' | 'keys' | 'age'>({
+		keys: {
+			namespace: (r) => `${r.namespace}|${r.name}`,
+			name: (r) => r.name,
+			keys: (r) => r.keys.length,
+			age: (r) => Date.parse(r.creationTimestamp ?? '') || 0
+		},
+		defaultKey: 'namespace',
+		prefKey: 'platform-dash:configmaps:sort:v1'
+	});
+
 	const filtered = $derived(
-		live.rows.filter((r) => !q || `${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase()))
+		live.rows
+			.filter((r) => !q || `${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase()))
+			.sort(sort.compare)
 	);
 
 	const kbd = createKbdNav({
@@ -83,7 +97,13 @@
 
 <table>
 	<thead>
-		<tr><th>Namespace</th><th>Name</th><th>Keys</th><th>Age</th><th>Actions</th></tr>
+		<tr>
+			<th class="sortable" onclick={() => sort.toggle('namespace')}>Namespace<span class="arr">{sort.indicator('namespace')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('name')}>Name<span class="arr">{sort.indicator('name')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('keys')}>Keys<span class="arr">{sort.indicator('keys')}</span></th>
+			<th class="sortable" onclick={() => sort.toggle('age')}>Age<span class="arr">{sort.indicator('age')}</span></th>
+			<th>Actions</th>
+		</tr>
 	</thead>
 	<tbody>
 		{#each filtered as r, i}
@@ -127,4 +147,7 @@
 	tr.row-focused td { box-shadow: inset 2px 0 0 var(--accent); }
 	tr.clickable { cursor: pointer; }
 	tr.clickable:hover td { background: var(--bg-elev); }
+	th.sortable { cursor: pointer; user-select: none; }
+	th.sortable:hover { color: var(--fg); }
+	th .arr { display: inline-block; margin-left: 0.3rem; color: var(--accent); font-size: 0.85em; min-width: 0.6em; }
 </style>

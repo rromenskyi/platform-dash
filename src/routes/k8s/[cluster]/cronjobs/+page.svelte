@@ -5,6 +5,8 @@
 	import KubectlMenu from '$lib/KubectlMenu.svelte';
 	import { nextRunAt, fmtCountdown } from '$lib/cron-next';
 	import Highlight from '$lib/Highlight.svelte';
+	import { createSort } from '$lib/sortable.svelte';
+	import type { CronRow } from './+page.server';
 
 	let { data } = $props();
 	let q = $state('');
@@ -21,8 +23,29 @@
 		if (timer) clearInterval(timer);
 	});
 
+	const sort = createSort<CronRow, 'namespace' | 'name' | 'schedule' | 'next' | 'suspend' | 'active' | 'last' | 'age'>({
+		keys: {
+			namespace: (r) => `${r.namespace}|${r.name}`,
+			name: (r) => r.name,
+			schedule: (r) => r.schedule,
+			next: (r) => {
+				if (r.suspend) return Number.MAX_SAFE_INTEGER;
+				const n = nextRunAt(r.schedule, now);
+				return n ?? Number.MAX_SAFE_INTEGER;
+			},
+			suspend: (r) => (r.suspend ? 1 : 0),
+			active: (r) => r.active,
+			last: (r) => Date.parse(r.lastSchedule ?? '') || 0,
+			age: (r) => Date.parse(r.creationTimestamp ?? '') || 0
+		},
+		defaultKey: 'next',
+		prefKey: 'platform-dash:cronjobs:sort:v1'
+	});
+
 	const filtered = $derived(
-		data.rows.filter((r) => !q || `${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase()))
+		data.rows
+			.filter((r) => !q || `${r.namespace}/${r.name}`.toLowerCase().includes(q.toLowerCase()))
+			.sort(sort.compare)
 	);
 
 	function nextRun(schedule: string, suspended: boolean): string {
@@ -47,7 +70,17 @@
 <p class="muted small">{filtered.length} of {data.rows.length}</p>
 
 <table>
-	<thead><tr><th>Namespace</th><th>Name</th><th>Schedule</th><th>Next run</th><th>Suspended</th><th class="num">Active</th><th>Last run</th><th>Age</th><th>Actions</th></tr></thead>
+	<thead><tr>
+		<th class="sortable" onclick={() => sort.toggle('namespace')}>Namespace<span class="arr">{sort.indicator('namespace')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('name')}>Name<span class="arr">{sort.indicator('name')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('schedule')}>Schedule<span class="arr">{sort.indicator('schedule')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('next')}>Next run<span class="arr">{sort.indicator('next')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('suspend')}>Suspended<span class="arr">{sort.indicator('suspend')}</span></th>
+		<th class="num sortable" onclick={() => sort.toggle('active')}>Active<span class="arr">{sort.indicator('active')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('last')}>Last run<span class="arr">{sort.indicator('last')}</span></th>
+		<th class="sortable" onclick={() => sort.toggle('age')}>Age<span class="arr">{sort.indicator('age')}</span></th>
+		<th>Actions</th>
+	</tr></thead>
 	<tbody>
 		{#each filtered as r}
 			<tr class:suspended={r.suspend}>
@@ -86,4 +119,7 @@
 	.countdown { color: var(--fg); }
 	.countdown.soon { color: #fcd34d; }
 	.error { padding: 0.75rem 1rem; background: rgba(251, 113, 133, 0.1); border: 1px solid #fb7185; border-radius: 8px; color: #fb7185; }
+	th.sortable { cursor: pointer; user-select: none; }
+	th.sortable:hover { color: var(--fg); }
+	th .arr { display: inline-block; margin-left: 0.3rem; color: var(--accent); font-size: 0.85em; min-width: 0.6em; }
 </style>
