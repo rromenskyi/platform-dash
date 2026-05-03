@@ -41,6 +41,7 @@
 		{ label: 'Profile', group: 'Pages', href: '/profile' },
 		{ label: 'Settings', group: 'Pages', href: '/settings' },
 		{ label: 'HTTP tester', group: 'Tools', href: '/tools/http' },
+		{ label: 'Cloud shell', group: 'Tools', href: '/tools/shell' },
 		{ label: 'Audit log', group: 'Admin', href: '/admin/audit' },
 		{ label: 'k8s API metrics', group: 'Admin', href: '/admin/metrics' }
 	];

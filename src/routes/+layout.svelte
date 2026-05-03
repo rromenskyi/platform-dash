@@ -309,6 +309,12 @@
 								<a class="tlink" class:active={isHrefActive('/tools/http')} href="/tools/http">HTTP tester</a>
 							</div>
 						</li>
+						<li class="tnode">
+							<div class="trow">
+								<span class="caret-spacer"></span>
+								<a class="tlink" class:active={isHrefActive('/tools/shell')} href="/tools/shell">Cloud shell</a>
+							</div>
+						</li>
 					</ul>
 				</div>
 				<div class="group">
