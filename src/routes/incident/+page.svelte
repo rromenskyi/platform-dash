@@ -201,14 +201,21 @@
 	<div class="card chip"><span class="k">OOMKilled (24h)</span><span class="v" class:bad={data.totals.oom > 0}>{data.totals.oom}</span></div>
 </section>
 
-{#if canWrite && (selected.size > 0 || flatPods.length > 0)}
+{#if canWrite && flatPods.length > 0}
 	<div class="bulk-bar">
 		<span class="bulk-count">{selected.size}/{flatPods.length} selected</span>
-		<button class="bulk-act" onclick={selectAll} disabled={selected.size === flatPods.length || flatPods.length === 0}>select all</button>
-		<button class="bulk-act" onclick={clearSelection} disabled={selected.size === 0}>clear</button>
+		{#if selected.size === flatPods.length}
+			<button class="bulk-act" onclick={clearSelection} title="Uncheck all rows">unselect all</button>
+		{:else}
+			<button class="bulk-act" onclick={selectAll} title="Check every row">select all</button>
+		{/if}
 		{#if selected.size > 0}
 			<button class="bulk-act danger" onclick={bulkKill}>delete {selected.size} pod{selected.size === 1 ? '' : 's'}</button>
 		{/if}
+		<span class="bulk-hint muted small">
+			Selection only — the topbar ⚠ count drops when k8s reports
+			pods healthy, not when you uncheck rows.
+		</span>
 	</div>
 {/if}
 
@@ -460,7 +467,7 @@
 	tr.row-focused.row-selected td { background: rgba(165, 180, 252, 0.14); }
 	td.check, th.check { width: 1.5rem; padding-right: 0; }
 	.bulk-bar {
-		display: inline-flex; gap: 0.4rem; align-items: center;
+		display: inline-flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;
 		padding: 0.5rem 0.85rem; margin: 0.5rem 0 1rem;
 		background: var(--bg-elev); border: 1px solid var(--rule); border-radius: 8px;
 	}
@@ -473,4 +480,5 @@
 	.bulk-act:hover:not(:disabled) { color: var(--fg); border-color: var(--accent); }
 	.bulk-act.danger:hover:not(:disabled) { color: #fb7185; border-color: #fb7185; }
 	.bulk-act:disabled { cursor: not-allowed; opacity: 0.5; }
+	.bulk-hint { margin-left: 0.5rem; }
 </style>
