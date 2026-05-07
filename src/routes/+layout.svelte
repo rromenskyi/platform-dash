@@ -188,8 +188,8 @@
 					class:idle={h.count === 0}
 					href={canWrite ? '/admin/metrics' : undefined}
 					title={h.count === 0
-						? 'k8s API: no samples in the ring yet — open a /k8s page to seed it'
-						: `k8s API: ${h.count} samples, ${h.errors} errors, p95 ${h.p95}ms`}
+						? 'k8s API: no samples in the last 5 min — open a /k8s page to seed the ring'
+						: `k8s API (last 5 min): ${h.count} samples, ${h.errors} errors, p95 ${h.p95}ms`}
 				>
 					<span class="dot"></span>
 					{#if h.count === 0}

@@ -59,8 +59,14 @@ export type MetricsSnapshot = {
 	perOp: Array<{ op: string; count: number; errors: number; p50: number; p95: number }>;
 };
 
-export function snapshot(): MetricsSnapshot {
-	const samples = ring.slice();
+// Optional `windowMs` time-windows the snapshot — only samples taken
+// within the last `windowMs` milliseconds are counted. Without it the
+// snapshot covers the entire ring (up to RING_SIZE samples). The
+// topbar pill uses the windowed variant so an error from an hour ago
+// doesn't sit in the count forever, looking like an active fault.
+export function snapshot(windowMs?: number): MetricsSnapshot {
+	const cutoff = windowMs !== undefined ? Date.now() - windowMs : 0;
+	const samples = windowMs !== undefined ? ring.filter((s) => s.at >= cutoff) : ring.slice();
 	const all = samples.map((s) => s.ms).sort((a, b) => a - b);
 	const errors = samples.filter((s) => !s.ok).length;
 	const oldest = samples.reduce((acc, s) => Math.min(acc, s.at), Date.now());
