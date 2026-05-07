@@ -18,6 +18,7 @@
 import { core } from './k8s.server';
 import { listClusters } from './clusters.server';
 import { time } from './k8s-metrics.server';
+import { isPodFailing } from './pod-health';
 
 const TTL_MS = 30_000;
 // Per-cluster k8s call timeout. If the apiserver hangs, the whole
@@ -71,20 +72,7 @@ async function compute(allowed: string[]): Promise<IncidentSummary> {
 				]);
 				let failing = 0;
 				for (const p of pods.items) {
-					const containers = p.status?.containerStatuses ?? [];
-					const restarts = containers.reduce((acc, c) => acc + (c.restartCount ?? 0), 0);
-					const phase = p.status?.phase ?? '?';
-					const waiting = containers.find((c) => c.state?.waiting)?.state?.waiting?.reason;
-					// Succeeded = Job/CronJob pod that finished cleanly. Never
-					// counts as failing for the topbar pill.
-					const isUnhappy =
-						phase !== 'Succeeded' &&
-						(phase === 'Failed' ||
-							phase === 'Unknown' ||
-							(phase === 'Pending' && !!waiting) ||
-							(phase === 'Running' && containers.some((c) => !c.ready)) ||
-							restarts >= 3);
-					if (isUnhappy) failing++;
+					if (isPodFailing(p)) failing++;
 				}
 				let badNodes = 0;
 				for (const n of nodes.items) {
