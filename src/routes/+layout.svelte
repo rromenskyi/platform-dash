@@ -209,7 +209,7 @@
 					class:bad={total > 0}
 					title={total === 0
 						? 'No failing pods or bad nodes'
-						: s.perCluster.map((c) => `${c.cluster}: ${c.failing} failing · ${c.badNodes} bad nodes`).join('\n')}
+						: `Live count from k8s — drops when pods recover (≤30s cache).\n\n${s.perCluster.map((c) => `${c.cluster}: ${c.failing} failing · ${c.badNodes} bad nodes`).join('\n')}`}
 				>
 					⚠ Incident{#if total > 0} · {total}{/if}
 				</a>
