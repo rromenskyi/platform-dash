@@ -211,6 +211,20 @@
 		Array.from(new Set(localRows.map((r) => r.status))).sort()
 	);
 
+	// Auto-reset statusFilter when the saved value doesn't appear in
+	// current rows. Without this a previously-saved `Failed` (or any
+	// status that no longer occurs in the cluster) leaves the page
+	// rendering "0 of N" forever — looks like a hung / empty page.
+	// Don't reset on initial cold start (localRows briefly [] before
+	// the loader fills it) or on transient empty states.
+	$effect(() => {
+		if (statusFilter === 'all') return;
+		if (localRows.length === 0) return;
+		if (!distinctStatuses.includes(statusFilter)) {
+			statusFilter = 'all';
+		}
+	});
+
 	// Sort. `chaos` is a synthetic column that surfaces the worst rows
 	// at the top: status weight first (failed/error/crashloop > pending
 	// > running > succeeded), then restart count desc, then ns/name.
