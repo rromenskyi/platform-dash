@@ -9,6 +9,7 @@ import { redirect } from '@sveltejs/kit';
 import { listClusters } from '$lib/clusters.server';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { isPodFailing } from '$lib/pod-health';
 
 export type FailingPod = {
 	cluster: string;
@@ -115,17 +116,7 @@ export const load: PageServerLoad = async (event) => {
 					const phase = p.status?.phase ?? '?';
 					const waiting = containers.find((c) => c.state?.waiting)?.state?.waiting?.reason;
 					const lastTerm = containers.find((c) => c.lastState?.terminated)?.lastState?.terminated;
-					// Succeeded = Job/CronJob pod that finished cleanly. Never an
-					// incident, even if it accumulated restarts on the way to
-					// success (restartPolicy: OnFailure).
-					const isUnhappy =
-						phase !== 'Succeeded' &&
-						(phase === 'Failed' ||
-							phase === 'Unknown' ||
-							(phase === 'Pending' && !!waiting) ||
-							(phase === 'Running' && containers.some((c) => !c.ready)) ||
-							restarts >= 3);
-					if (isUnhappy) {
+					if (isPodFailing(p)) {
 						failingPods.push({
 							cluster,
 							namespace: p.metadata?.namespace ?? '?',
