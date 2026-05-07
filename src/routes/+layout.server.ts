@@ -39,7 +39,11 @@ export const load: LayoutServerLoad = async (event) => {
 	}
 	// Lightweight snapshot for the topbar status pill — only counts +
 	// p95 + recent error count. Cheap (in-memory ring snapshot).
-	const m = reader ? k8sMetricsSnapshot() : null;
+	// 5-minute window so an error from earlier in the session doesn't
+	// sit in the pill forever, looking like an active fault. Full
+	// (whole-ring) snapshot is still available on /admin/metrics.
+	const TOPBAR_WINDOW_MS = 5 * 60 * 1000;
+	const m = reader ? k8sMetricsSnapshot(TOPBAR_WINDOW_MS) : null;
 	const apiHealth = m
 		? {
 				count: m.count,
