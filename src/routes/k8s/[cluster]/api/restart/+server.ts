@@ -1,9 +1,27 @@
 import { error, json } from '@sveltejs/kit';
+import { setHeaderOptions } from '@kubernetes/client-node';
 import type { RequestHandler } from './$types';
 import { apps } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canWrite } from '$lib/authz';
 import { audited } from '$lib/audit.server';
+
+// PATCH on AppsV1Api defaults to `application/json-patch+json`
+// (RFC 6902, array of {op,path,value}). Our patch body is a deeply
+// nested object — the strategic-merge-patch shape — which the API
+// server can't decode against the json-patch schema and rejects
+// with HTTP 400. Override the header per call to match the body.
+//
+// Strategic Merge Patch (vs JSON Merge Patch): handles "merge per
+// key", "create parent path if missing", and the AppsV1 schema's
+// special $patch directives. The annotation map under
+// spec.template.metadata.annotations is the merge target — without
+// strategic semantics a plain merge would replace the whole map and
+// wipe sibling annotations like deployment.kubernetes.io/revision.
+const STRATEGIC_MERGE_PATCH = setHeaderOptions(
+	'Content-Type',
+	'application/strategic-merge-patch+json'
+);
 
 // kubectl rollout restart equivalent — patch the pod template
 // metadata with a fresh annotation. K8s notices the template hash
@@ -52,16 +70,22 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	try {
 		await audited(baseEvent, () =>
 			body.kind === 'Deployment'
-				? apps(cluster).patchNamespacedDeployment({
-						name: body.name!,
-						namespace: body.namespace!,
-						body: patch
-					})
-				: apps(cluster).patchNamespacedStatefulSet({
-						name: body.name!,
-						namespace: body.namespace!,
-						body: patch
-					})
+				? apps(cluster).patchNamespacedDeployment(
+						{
+							name: body.name!,
+							namespace: body.namespace!,
+							body: patch
+						},
+						STRATEGIC_MERGE_PATCH
+					)
+				: apps(cluster).patchNamespacedStatefulSet(
+						{
+							name: body.name!,
+							namespace: body.namespace!,
+							body: patch
+						},
+						STRATEGIC_MERGE_PATCH
+					)
 		);
 		return json({ ok: true, restartedAt: patch.spec.template.metadata.annotations[RESTART_ANNOTATION] });
 	} catch (err) {
