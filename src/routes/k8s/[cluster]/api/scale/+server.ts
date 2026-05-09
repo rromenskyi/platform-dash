@@ -34,7 +34,13 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 		throw error(403, 'platform_admin, cluster_<x>_admin, or namespace_<x>_admin role required');
 	}
 
-	const patch = { spec: { replicas: r } };
+	// RFC 6902 JSON Patch — the SDK's default Content-Type for
+	// patchNamespacedDeploymentScale / patchNamespacedStatefulSetScale
+	// is application/json-patch+json (first in its accepted list), so
+	// the body must be an array of ops, not a merge-patch object.
+	// The /scale subresource always exposes spec.replicas (default 1),
+	// so "replace" is safe without needing "add".
+	const patch = [{ op: 'replace', path: '/spec/replicas', value: r }];
 	const target = {
 		kind: body.kind,
 		namespace: body.namespace,
@@ -65,11 +71,26 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 		);
 		return json({ ok: true, replicas: r });
 	} catch (err) {
-		const code =
-			typeof err === 'object' && err !== null && 'code' in err
-				? (err as { code: number }).code
-				: 500;
-		const msg = err instanceof Error ? err.message : String(err);
+		// ApiException stuffs the full HTTP dump (status + body + headers)
+		// into err.message — useless to operators staring at a toast.
+		// Prefer the apiserver's V1Status.message, fall back to reason/code.
+		const e = err as {
+			code?: number;
+			body?: { message?: string; reason?: string } | string;
+			message?: string;
+		};
+		const code = typeof e.code === 'number' ? e.code : 500;
+		let body: { message?: string; reason?: string } | undefined;
+		if (typeof e.body === 'string') {
+			try {
+				body = JSON.parse(e.body);
+			} catch {
+				body = { message: e.body };
+			}
+		} else if (e.body && typeof e.body === 'object') {
+			body = e.body;
+		}
+		const msg = body?.message ?? body?.reason ?? e.message ?? String(err);
 		throw error(code === 401 || code === 403 ? 403 : 500, msg);
 	}
 };

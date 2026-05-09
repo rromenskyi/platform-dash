@@ -76,8 +76,14 @@
 			toast.show(`scaled to ${n}`);
 			await invalidateAll();
 		} else {
-			const t = await res.text();
-			toast.show(`scale failed: ${t}`, 'err');
+			const raw = await res.text();
+			let msg = raw;
+			try {
+				msg = (JSON.parse(raw) as { message?: string }).message ?? raw;
+			} catch {
+				/* not JSON — show as-is */
+			}
+			toast.show(`scale failed: ${msg}`, 'err');
 		}
 	}
 
