@@ -21,3 +21,22 @@ npm run dev    # local dev
 npm run build  # prod
 npm run check  # svelte-check + tsc
 ```
+
+## Pinging the operator
+
+Push a one-liner via the orchestrator's localhost endpoint when a
+task lands or you hit a blocker. Bot token stays in orchestrator.
+
+```bash
+~/gh/private-agent-project-manager/orchestrator/scripts/pm-notify \
+    platform-dash "PR #48 cloudshell ready for RBAC apply"
+
+~/gh/private-agent-project-manager/orchestrator/scripts/pm-notify \
+    -s high platform-dash "k8s API client lost auth — dashboard 500s"
+```
+
+Severity: `low` / `normal` (default) / `high`. Use `high` only for
+prod-visible regressions or operator-blocking decisions.
+
+Cluster mutations still go through `~/agent-inbox/platform/inbox/`
+handoff (not `/notify`).
