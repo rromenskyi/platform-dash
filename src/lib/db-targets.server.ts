@@ -3,6 +3,7 @@ import { parse as parseYaml } from 'yaml';
 import { env } from '$env/dynamic/private';
 import { core } from './k8s.server';
 import { defaultCluster } from './clusters.server';
+import { withDeadline } from './index';
 
 // DB target registry. Two sources merged at refresh time:
 //
@@ -111,10 +112,18 @@ async function fromConfigMap(): Promise<DbTarget[]> {
 	const cluster = defaultCluster();
 	let cm;
 	try {
-		cm = await core(cluster).readNamespacedConfigMap({
-			name: CONFIGMAP_NAME,
-			namespace: cmNs
-		});
+		// Bound the k8s read so a slow apiserver doesn't park ensureFresh
+		// — every page that calls await ensureFresh() inherits the wait,
+		// including the layout, and CF's 100s tunnel timeout fires before
+		// SvelteKit even starts rendering.
+		cm = await withDeadline(
+			core(cluster).readNamespacedConfigMap({
+				name: CONFIGMAP_NAME,
+				namespace: cmNs
+			}),
+			4_000,
+			`db-targets read CM ${cmNs}/${CONFIGMAP_NAME}`
+		);
 	} catch (err) {
 		const code =
 			typeof err === 'object' && err !== null && 'code' in err
@@ -147,10 +156,14 @@ async function fromConfigMap(): Promise<DbTarget[]> {
 				if (t.kind !== 'postgres' && t.kind !== 'redis' && t.kind !== 'mysql') return null;
 				const secNs = t.secret.namespace || cmNs;
 				try {
-					const sec = await core(cluster).readNamespacedSecret({
-						name: t.secret.name,
-						namespace: secNs
-					});
+					const sec = await withDeadline(
+						core(cluster).readNamespacedSecret({
+							name: t.secret.name,
+							namespace: secNs
+						}),
+						4_000,
+						`db-targets read Secret ${secNs}/${t.secret.name}`
+					);
 					const b64 = (sec.data ?? {})[t.secret.key];
 					if (!b64) {
 						return {

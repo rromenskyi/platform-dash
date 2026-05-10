@@ -1,5 +1,6 @@
 import Redis from 'ioredis';
 import { record } from './audit.server';
+import { withDeadline } from './index';
 import type { Session } from '@auth/core/types';
 
 // Redis stats via INFO. ACL needs `+@read +info` for the dashboard
@@ -123,7 +124,12 @@ export async function fetchRedisStats(
 
 	const start = performance.now();
 	try {
-		const raw = await c.info();
+		// Bound INFO to 8s — ioredis enableOfflineQueue defaults to true
+		// and queues commands while reconnecting forever (e.g. WRONGPASS
+		// after rotation, NXDOMAIN, NetworkPolicy block) without ever
+		// rejecting. Without this race the loader hangs until Cloudflare
+		// returns a 524 to the operator with no clue why.
+		const raw = await withDeadline(c.info(), 8_000, `redis [${targetName}] INFO`);
 		const flat = parseInfo(raw);
 		record({
 			...baseAudit,
