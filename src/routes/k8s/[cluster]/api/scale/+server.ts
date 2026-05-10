@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { apps } from '$lib/k8s.server';
+import { apps, kubeError } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canWrite } from '$lib/authz';
 import { audited } from '$lib/audit.server';
@@ -71,26 +71,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 		);
 		return json({ ok: true, replicas: r });
 	} catch (err) {
-		// ApiException stuffs the full HTTP dump (status + body + headers)
-		// into err.message — useless to operators staring at a toast.
-		// Prefer the apiserver's V1Status.message, fall back to reason/code.
-		const e = err as {
-			code?: number;
-			body?: { message?: string; reason?: string } | string;
-			message?: string;
-		};
-		const code = typeof e.code === 'number' ? e.code : 500;
-		let body: { message?: string; reason?: string } | undefined;
-		if (typeof e.body === 'string') {
-			try {
-				body = JSON.parse(e.body);
-			} catch {
-				body = { message: e.body };
-			}
-		} else if (e.body && typeof e.body === 'object') {
-			body = e.body;
-		}
-		const msg = body?.message ?? body?.reason ?? e.message ?? String(err);
-		throw error(code === 401 || code === 403 ? 403 : 500, msg);
+		const { code, message } = kubeError(err);
+		throw error(code === 401 || code === 403 ? 403 : 500, message);
 	}
 };

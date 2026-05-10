@@ -16,15 +16,15 @@ function pickServingVersion(
 }
 
 // Strip the noisy server-side fields we never want to show in the
-// viewer — ResourceVersion, managedFields, generation churn. Keeps
-// the JSON readable without losing anything operators care about.
+// viewer. resourceVersion is KEPT — the editor round-trips it as
+// the optimistic-concurrency token; the apiserver rejects PUTs
+// without it ("must be specified for an update", 422).
 function clean(obj: Record<string, unknown>): Record<string, unknown> {
 	const out: Record<string, unknown> = { ...obj };
 	const meta = out.metadata as Record<string, unknown> | undefined;
 	if (meta) {
 		const m = { ...meta };
 		delete m.managedFields;
-		delete m.resourceVersion;
 		delete m.generation;
 		delete m.selfLink;
 		out.metadata = m;

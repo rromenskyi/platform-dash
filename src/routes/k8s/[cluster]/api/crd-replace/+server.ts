@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { parse as parseYaml } from 'yaml';
-import { apiextensions, customObjects } from '$lib/k8s.server';
+import { apiextensions, customObjects, kubeError } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canWrite } from '$lib/authz';
 import { audited } from '$lib/audit.server';
@@ -124,11 +124,19 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 		);
 		return json({ ok: true, object: result });
 	} catch (err) {
-		const code =
-			typeof err === 'object' && err !== null && 'code' in err
-				? (err as { code: number }).code
-				: 500;
-		const msg = err instanceof Error ? err.message : String(err);
-		throw error(code === 401 || code === 403 ? 403 : code === 409 ? 409 : 500, msg);
+		const { code, message } = kubeError(err);
+		// Pass through 409 verbatim so the UI can surface "edited
+		// elsewhere — refresh and retry"; 422 is a body-shape problem
+		// (missing resourceVersion, schema violation) the operator
+		// needs to read; auth maps to 403.
+		const status =
+			code === 401 || code === 403
+				? 403
+				: code === 409
+					? 409
+					: code === 422
+						? 422
+						: 500;
+		throw error(status, message);
 	}
 };
