@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise';
 import { record } from './audit.server';
+import { withDeadline } from './index';
 import type { Session } from '@auth/core/types';
 
 // MySQL stats client. One pool per target, kept open across requests.
@@ -74,23 +75,41 @@ export async function fetchMysqlStats(
 
 	const start = performance.now();
 	try {
-		const conn = await pool.getConnection();
+		// Bound connect+query to 8s — see db-redis.server.ts for the
+		// underlying reasoning. mysql2 pool.getConnection() blocks until
+		// a slot is free, and individual queries inherit the connection's
+		// timeout (default: none) so a wedged server hangs the loader
+		// until Cloudflare returns 524.
+		const conn = await withDeadline(pool.getConnection(), 8_000, `mysql [${targetName}] connect`);
 		try {
-			const [sizesRows] = await conn.query<mysql.RowDataPacket[]>(
-				`SELECT table_schema AS db, COALESCE(SUM(data_length + index_length), 0) AS bytes
-				FROM information_schema.tables
-				GROUP BY table_schema
-				ORDER BY bytes DESC`
+			// mysql2's single connection is strictly sequential — running
+			// queries through Promise.all() on the same conn throws
+			// "Can't execute commands". Wrap the whole sequence in one
+			// deadline so the loader still returns inside 8s if the
+			// server stops responding mid-batch.
+			const queries = (async () => {
+				const [s] = await conn.query<mysql.RowDataPacket[]>(
+					`SELECT table_schema AS db, COALESCE(SUM(data_length + index_length), 0) AS bytes
+					FROM information_schema.tables
+					GROUP BY table_schema
+					ORDER BY bytes DESC`
+				);
+				const [st] = await conn.query<mysql.RowDataPacket[]>(
+					`SHOW GLOBAL STATUS WHERE Variable_name IN
+					('Uptime','Threads_connected','Slow_queries',
+					 'Innodb_buffer_pool_read_requests','Innodb_buffer_pool_reads')`
+				);
+				const [mc] = await conn.query<mysql.RowDataPacket[]>(
+					`SHOW VARIABLES LIKE 'max_connections'`
+				);
+				const [v] = await conn.query<mysql.RowDataPacket[]>(`SELECT VERSION() AS v`);
+				return [s, st, mc, v] as const;
+			})();
+			const [sizesRows, statusRows, maxConnRows, verRows] = await withDeadline(
+				queries,
+				8_000,
+				`mysql [${targetName}] stats query`
 			);
-			const [statusRows] = await conn.query<mysql.RowDataPacket[]>(
-				`SHOW GLOBAL STATUS WHERE Variable_name IN
-				('Uptime','Threads_connected','Slow_queries',
-				 'Innodb_buffer_pool_read_requests','Innodb_buffer_pool_reads')`
-			);
-			const [maxConnRows] = await conn.query<mysql.RowDataPacket[]>(
-				`SHOW VARIABLES LIKE 'max_connections'`
-			);
-			const [verRows] = await conn.query<mysql.RowDataPacket[]>(`SELECT VERSION() AS v`);
 
 			const status: Record<string, string> = {};
 			for (const r of statusRows) {

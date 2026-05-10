@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { record } from './audit.server';
+import { withDeadline } from './index';
 import type { Session } from '@auth/core/types';
 
 // Postgres stats client. One Pool per target, keyed by target name —
@@ -123,16 +124,24 @@ export async function fetchPgStats(
 
 	const start = performance.now();
 	try {
-		const client = await pool.connect();
+		// Bound the whole connect+query block to 8s — see db-redis.server.ts
+		// for the underlying reasoning. node-postgres pool.connect() can
+		// stall when all clients are checked out and no connection is
+		// idle, and individual queries have no built-in statement timeout.
+		const client = await withDeadline(pool.connect(), 8_000, `pg [${targetName}] connect`);
 		try {
-			const [sizes, conns, maxConns, repl, uptime, ver] = await Promise.all([
-				client.query<{ datname: string; bytes: string }>(QUERIES.dbSizes),
-				client.query<{ state: string | null; n: number }>(QUERIES.connections),
-				client.query<{ n: number }>(QUERIES.maxConnections),
-				client.query<{ in_recovery: boolean; lag_sec: number | null }>(QUERIES.replication),
-				client.query<{ sec: number }>(QUERIES.uptime),
-				client.query<{ v: string }>(QUERIES.version)
-			]);
+			const [sizes, conns, maxConns, repl, uptime, ver] = await withDeadline(
+				Promise.all([
+					client.query<{ datname: string; bytes: string }>(QUERIES.dbSizes),
+					client.query<{ state: string | null; n: number }>(QUERIES.connections),
+					client.query<{ n: number }>(QUERIES.maxConnections),
+					client.query<{ in_recovery: boolean; lag_sec: number | null }>(QUERIES.replication),
+					client.query<{ sec: number }>(QUERIES.uptime),
+					client.query<{ v: string }>(QUERIES.version)
+				]),
+				8_000,
+				`pg [${targetName}] stats query`
+			);
 			let active = 0,
 				idle = 0,
 				idleInTx = 0,
@@ -326,23 +335,27 @@ export async function fetchPgSlowQueries(
 	};
 	const start = performance.now();
 	try {
-		const client = await pool.connect();
+		const client = await withDeadline(pool.connect(), 8_000, `pg [${targetName}] connect (slow)`);
 		try {
 			// pg_stat_statements ships as an extension (default OFF on
 			// most installs). Surface the missing-extension case as a
 			// soft error rather than a 500 — operator can install via
 			// CREATE EXTENSION pg_stat_statements; once they're ready.
-			const res = await client.query<{
-				query: string;
-				calls: string;
-				total_exec_time: string;
-				mean_exec_time: string;
-				rows: string;
-			}>(
-				`SELECT query, calls, total_exec_time, mean_exec_time, rows
-				FROM pg_stat_statements
-				ORDER BY total_exec_time DESC
-				LIMIT 20`
+			const res = await withDeadline(
+				client.query<{
+					query: string;
+					calls: string;
+					total_exec_time: string;
+					mean_exec_time: string;
+					rows: string;
+				}>(
+					`SELECT query, calls, total_exec_time, mean_exec_time, rows
+					FROM pg_stat_statements
+					ORDER BY total_exec_time DESC
+					LIMIT 20`
+				),
+				8_000,
+				`pg [${targetName}] slow-query scan`
 			);
 			record({
 				...baseAudit,
