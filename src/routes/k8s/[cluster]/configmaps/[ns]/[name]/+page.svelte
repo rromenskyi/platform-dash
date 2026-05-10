@@ -67,8 +67,7 @@
 				})
 			});
 			if (!res.ok) {
-				const text = await res.text();
-				toast.show(`replace failed (${res.status}): ${text || res.statusText}`, 'err');
+				toast.show(`replace failed (${res.status}): ${await unwrapErr(res)}`, 'err');
 				return;
 			}
 			toast.show('saved');
@@ -78,6 +77,21 @@
 			toast.show(`replace failed: ${err instanceof Error ? err.message : String(err)}`, 'err');
 		} finally {
 			saving = false;
+		}
+	}
+
+	// SvelteKit's error() helper responds with JSON {message: "..."}.
+	// Strip the envelope so the toast shows just the apiserver line,
+	// not raw JSON. Falls back to text + statusText if the body isn't
+	// JSON.
+	async function unwrapErr(res: Response): Promise<string> {
+		const raw = await res.text();
+		if (!raw) return res.statusText;
+		try {
+			const parsed = JSON.parse(raw) as { message?: string };
+			return parsed.message ?? raw;
+		} catch {
+			return raw;
 		}
 	}
 </script>

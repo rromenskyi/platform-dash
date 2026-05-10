@@ -79,8 +79,7 @@
 				})
 			});
 			if (!res.ok) {
-				const text = await res.text();
-				toast.show(`replace failed (${res.status}): ${text || res.statusText}`, 'err');
+				toast.show(`replace failed (${res.status}): ${await unwrapErr(res)}`, 'err');
 				return;
 			}
 			toast.show('saved');
@@ -111,13 +110,27 @@
 				})
 			});
 			if (!res.ok) {
-				const text = await res.text();
-				toast.show(`delete failed (${res.status}): ${text || res.statusText}`, 'err');
+				toast.show(`delete failed (${res.status}): ${await unwrapErr(res)}`, 'err');
 				return;
 			}
 			await goto(`/k8s/${data.cluster}/crds/${data.crd.name}`);
 		} catch (err) {
 			toast.show(`delete failed: ${err instanceof Error ? err.message : String(err)}`, 'err');
+		}
+	}
+
+	// SvelteKit's error() helper responds with JSON {message: "..."}.
+	// Strip the envelope so the toast shows just the apiserver line,
+	// not raw JSON. Falls back to text + statusText if the body isn't
+	// JSON.
+	async function unwrapErr(res: Response): Promise<string> {
+		const raw = await res.text();
+		if (!raw) return res.statusText;
+		try {
+			const parsed = JSON.parse(raw) as { message?: string };
+			return parsed.message ?? raw;
+		} catch {
+			return raw;
 		}
 	}
 </script>

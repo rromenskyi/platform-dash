@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { setHeaderOptions } from '@kubernetes/client-node';
 import type { RequestHandler } from './$types';
-import { apps } from '$lib/k8s.server';
+import { apps, kubeError } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canWrite } from '$lib/authz';
 import { audited } from '$lib/audit.server';
@@ -89,11 +89,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 		);
 		return json({ ok: true, restartedAt: patch.spec.template.metadata.annotations[RESTART_ANNOTATION] });
 	} catch (err) {
-		const code =
-			typeof err === 'object' && err !== null && 'code' in err
-				? (err as { code: number }).code
-				: 500;
-		const msg = err instanceof Error ? err.message : String(err);
-		throw error(code === 401 || code === 403 ? 403 : 500, msg);
+		const { code, message } = kubeError(err);
+		throw error(code === 401 || code === 403 ? 403 : 500, message);
 	}
 };

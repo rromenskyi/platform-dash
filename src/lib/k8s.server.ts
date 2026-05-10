@@ -45,3 +45,30 @@ export const watcher = (cluster: string): Watch => new Watch(getKubeConfig(clust
 // CPU + memory usage. Optional dep — clusters without metrics-server
 // installed return 404; callers must catch.
 export const metrics = (cluster: string): Metrics => new Metrics(getKubeConfig(cluster));
+
+// Unwraps an @kubernetes/client-node ApiException into something fit
+// for a toast. The SDK packs the full HTTP dump into err.message
+// ("HTTP-Code: ...\nMessage: ...\nBody: <stringified V1Status>\n
+// Headers: ..."), so handlers must reach for err.body to get the
+// apiserver's V1Status.message. err.body may already be parsed or
+// still a JSON string depending on response content-type.
+export function kubeError(err: unknown): { code: number; message: string } {
+	const e = err as {
+		code?: number;
+		body?: { message?: string; reason?: string } | string;
+		message?: string;
+	};
+	const code = typeof e.code === 'number' ? e.code : 500;
+	let body: { message?: string; reason?: string } | undefined;
+	if (typeof e.body === 'string') {
+		try {
+			body = JSON.parse(e.body);
+		} catch {
+			body = { message: e.body };
+		}
+	} else if (e.body && typeof e.body === 'object') {
+		body = e.body;
+	}
+	const message = body?.message ?? body?.reason ?? e.message ?? String(err);
+	return { code, message };
+}

@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { parse as parseYaml } from 'yaml';
-import { core } from '$lib/k8s.server';
+import { core, kubeError } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canWrite } from '$lib/authz';
 import { audited } from '$lib/audit.server';
@@ -67,11 +67,15 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 		);
 		return json({ ok: true, object: result });
 	} catch (err) {
-		const code =
-			typeof err === 'object' && err !== null && 'code' in err
-				? (err as { code: number }).code
-				: 500;
-		const msg = err instanceof Error ? err.message : String(err);
-		throw error(code === 401 || code === 403 ? 403 : code === 409 ? 409 : 500, msg);
+		const { code, message } = kubeError(err);
+		const status =
+			code === 401 || code === 403
+				? 403
+				: code === 409
+					? 409
+					: code === 422
+						? 422
+						: 500;
+		throw error(status, message);
 	}
 };
