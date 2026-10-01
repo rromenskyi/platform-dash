@@ -46,9 +46,39 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	// buffered until the next chunk (or the final flush on close).
 	const encoder = new TextEncoder();
 	let abortCtrl: AbortController | null = null;
+	let closed = false;
+	let ctrl: ReadableStreamDefaultController<Uint8Array> | null = null;
+	// Idempotent teardown for client abort, stream cancel, and enqueue
+	// failures (controller already closed after navigation). An unguarded
+	// enqueue threw inside write(), cb() never ran, and the upstream log
+	// request stayed open.
+	function cleanup() {
+		if (closed) return;
+		closed = true;
+		try {
+			abortCtrl?.abort();
+		} catch {
+			/* already aborted */
+		}
+		try {
+			ctrl?.close();
+		} catch {
+			/* already closed */
+		}
+	}
+	function send(chunk: string) {
+		if (closed) return;
+		try {
+			ctrl?.enqueue(encoder.encode(chunk));
+		} catch {
+			cleanup();
+		}
+	}
 
 	const stream = new ReadableStream<Uint8Array>({
 		async start(controller) {
+			ctrl = controller;
+			request.signal.addEventListener('abort', cleanup);
 			let buffer = '';
 			const writable = new Writable({
 				write(chunk, _enc, cb) {
@@ -57,21 +87,17 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 					while ((nl = buffer.indexOf('\n')) >= 0) {
 						const line = buffer.slice(0, nl);
 						buffer = buffer.slice(nl + 1);
-						controller.enqueue(encoder.encode(`data: ${line}\n\n`));
+						send(`data: ${line}\n\n`);
 					}
 					cb();
 				},
 				final(cb) {
 					if (buffer.length > 0) {
-						controller.enqueue(encoder.encode(`data: ${buffer}\n\n`));
+						send(`data: ${buffer}\n\n`);
 						buffer = '';
 					}
-					controller.enqueue(encoder.encode('event: end\ndata: \n\n'));
-					try {
-						controller.close();
-					} catch {
-						/* already closed */
-					}
+					send('event: end\ndata: \n\n');
+					cleanup();
 					cb();
 				}
 			});
@@ -86,30 +112,20 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 				});
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
-				controller.enqueue(encoder.encode(`event: error\ndata: ${msg}\n\n`));
-				try {
-					controller.close();
-				} catch {
-					/* already closed */
-				}
+				send(`event: error\ndata: ${msg}\n\n`);
+				cleanup();
 			}
-
-			// If the client navigates away, abort the upstream request so
-			// we stop pulling logs we'll never deliver.
-			request.signal.addEventListener('abort', () => {
+			// Client left while the log request was opening.
+			if (closed) {
 				try {
 					abortCtrl?.abort();
 				} catch {
 					/* already aborted */
 				}
-			});
+			}
 		},
 		cancel() {
-			try {
-				abortCtrl?.abort();
-			} catch {
-				/* already aborted */
-			}
+			cleanup();
 		}
 	});
 

@@ -117,8 +117,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				}
 				snippet = new TextDecoder('utf-8', { fatal: false }).decode(buf);
 			}
+			// Cancel through the reader: it holds the stream's lock, so
+			// res.body.cancel() rejected (swallowed) and a >64 KB or
+			// still-streaming response kept the upstream connection open.
 			try {
-				await res.body?.cancel();
+				await (reader ? reader.cancel() : res.body?.cancel());
 			} catch {
 				/* */
 			}
