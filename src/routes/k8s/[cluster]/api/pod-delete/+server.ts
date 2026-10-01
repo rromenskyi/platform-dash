@@ -4,6 +4,7 @@ import { core } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canWrite } from '$lib/authz';
 import { audited } from '$lib/audit.server';
+import { readJson } from '$lib/csrf.server';
 
 // "Kick the pod" — controller will respawn if it has one. Default
 // gracePeriod respects the pod's own terminationGracePeriodSeconds;
@@ -14,7 +15,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
 
-	const body = (await request.json()) as { namespace?: string; name?: string };
+	const body = await readJson<{ namespace?: string; name?: string }>(request);
 	if (!body.namespace || !body.name) throw error(400, 'namespace + name required');
 	if (!canWrite(session, cluster, body.namespace)) {
 		throw error(403, 'platform_admin, cluster_<x>_admin, or namespace_<x>_admin role required');

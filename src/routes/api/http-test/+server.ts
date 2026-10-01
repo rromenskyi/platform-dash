@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { canWrite } from '$lib/authz';
 import { record } from '$lib/audit.server';
+import { readJson } from '$lib/csrf.server';
 
 // Server-side HTTP tester. Fetches arbitrary URLs (http/https only)
 // from inside the dash pod with operator-supplied method, headers,
@@ -27,12 +28,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		throw error(403, 'platform_admin role required');
 	}
 
-	const body = (await request.json()) as {
+	const body = await readJson<{
 		url?: string;
 		method?: string;
 		headers?: Record<string, string>;
 		body?: string;
-	};
+	}>(request);
 	if (!body.url) throw error(400, 'url required');
 
 	let parsed: URL;

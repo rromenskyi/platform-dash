@@ -4,6 +4,7 @@ import { apiextensions, customObjects, kubeError } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canWrite } from '$lib/authz';
 import { audited } from '$lib/audit.server';
+import { readJson } from '$lib/csrf.server';
 
 function pickServingVersion(
 	versions: Array<{ name: string; storage?: boolean; served?: boolean }> | undefined
@@ -20,11 +21,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
 
-	const reqBody = (await request.json()) as {
+	const reqBody = await readJson<{
 		crdName?: string;
 		namespace?: string;
 		name?: string;
-	};
+	}>(request);
 	if (!reqBody.crdName || !reqBody.name) {
 		throw error(400, 'crdName and name are required');
 	}

@@ -5,6 +5,7 @@ import { apiextensions, customObjects, kubeError } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canWrite } from '$lib/authz';
 import { audited } from '$lib/audit.server';
+import { readJson } from '$lib/csrf.server';
 
 // Replace a custom object. Body shape:
 //   { crdName, namespace?, name, body: <YAML or JSON string> }
@@ -36,12 +37,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
 
-	const reqBody = (await request.json()) as {
+	const reqBody = await readJson<{
 		crdName?: string;
 		namespace?: string;
 		name?: string;
 		body?: string;
-	};
+	}>(request);
 	if (!reqBody.crdName || !reqBody.name || !reqBody.body) {
 		throw error(400, 'crdName, name and body are required');
 	}
