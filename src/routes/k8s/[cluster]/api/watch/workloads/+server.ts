@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { watcher } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canRead } from '$lib/authz';
+import { isNamespaceName } from '$lib/k8s-names';
 
 // SSE feed of pod / deployment / statefulset events. We open three
 // parallel watches and fan their events into one stream so the
@@ -126,6 +127,8 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
 	const ns = url.searchParams.get('ns') || '';
+	// `ns` is interpolated into the raw watch paths below.
+	if (ns && !isNamespaceName(ns)) throw error(400, 'invalid namespace');
 	if (!canRead(session, cluster, ns || undefined)) {
 		throw error(403, 'read role required (cluster-wide or matching ?ns=)');
 	}
@@ -140,34 +143,42 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 		? `/apis/apps/v1/namespaces/${ns}/statefulsets`
 		: `/apis/apps/v1/statefulsets`;
 
+	// Shared idempotent teardown for all three watches — see
+	// sse-watch.server.ts. Called on client abort, stream cancel, and
+	// when any upstream watch ends (so EventSource reconnects and
+	// re-lists instead of silently missing one resource kind).
+	const aborters: AbortController[] = [];
+	let closed = false;
+	let ctrl: ReadableStreamDefaultController<Uint8Array> | null = null;
+	function shutdown() {
+		if (closed) return;
+		closed = true;
+		for (const a of aborters) {
+			try {
+				a.abort();
+			} catch {
+				/* */
+			}
+		}
+		try {
+			ctrl?.close();
+		} catch {
+			/* */
+		}
+	}
+
 	const stream = new ReadableStream<Uint8Array>({
 		async start(controller) {
-			const aborters: AbortController[] = [];
-			let closed = false;
+			ctrl = controller;
 			function emit(payload: object) {
 				if (closed) return;
 				try {
 					controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
 				} catch {
-					closed = true;
+					shutdown();
 				}
 			}
-			function shutdown() {
-				if (closed) return;
-				closed = true;
-				for (const a of aborters) {
-					try {
-						a.abort();
-					} catch {
-						/* */
-					}
-				}
-				try {
-					controller.close();
-				} catch {
-					/* */
-				}
-			}
+			request.signal.addEventListener('abort', shutdown);
 
 			async function open(
 				path: string,
@@ -185,9 +196,12 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 							if (err && !closed) {
 								emit({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
 							}
+							shutdown();
 						}
 					);
-					aborters.push(ac);
+					// Shut down while this watch was opening — stop it now.
+					if (closed) ac.abort();
+					else aborters.push(ac);
 				} catch (err) {
 					emit({
 						kind: 'error',
@@ -197,14 +211,10 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 			}
 
 			await Promise.all([open(podsPath, podRow), open(depsPath, deployRow), open(ssPath, ssRow)]);
-
-			request.signal.addEventListener('abort', shutdown);
+			if (request.signal.aborted) shutdown();
 		},
 		cancel() {
-			// ReadableStream cancel happens on client disconnect or
-			// upstream abort; close the watches so we stop pulling deltas.
-			// `aborters` is captured in start() — nothing to do here that
-			// the request.signal handler hasn't already done.
+			shutdown();
 		}
 	});
 

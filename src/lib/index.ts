@@ -6,10 +6,23 @@
 // (DB connection wedged, k8s API not responding, ioredis offline-queue
 // stuck) into visible error rows on the page. Without this every slow
 // loader trips Cloudflare Tunnel's 100s origin timeout (524) instead.
-export function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+//
+// The race doesn't cancel `p`. For resource acquisition (pool.connect,
+// getConnection) pass `onLate` so a value that arrives after the
+// deadline is handed back (e.g. released) instead of leaking — two
+// late connections were enough to wedge a `max: 2` pool for good.
+export function withDeadline<T>(
+	p: Promise<T>,
+	ms: number,
+	label: string,
+	onLate?: (value: T) => void
+): Promise<T> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const timeout = new Promise<never>((_, rej) => {
-		timer = setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms);
+		timer = setTimeout(() => {
+			if (onLate) p.then(onLate, () => {});
+			rej(new Error(`${label} timed out after ${ms}ms`));
+		}, ms);
 	});
 	return Promise.race([p, timeout]).finally(() => {
 		if (timer) clearTimeout(timer);

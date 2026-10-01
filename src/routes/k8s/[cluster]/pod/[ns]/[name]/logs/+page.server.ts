@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { requireRead } from '$lib/authz';
 
 // We re-read the pod here (cheap) so the page can render a container
 // picker without round-tripping the parent +page.server.ts. The
@@ -9,6 +10,10 @@ import { time } from '$lib/k8s-metrics.server';
 // log delivery; this loader only sets up the chooser UI.
 export const load: PageServerLoad = async (event) => {
 	const { cluster, ns, name } = event.params;
+	// Page loads can run without the layouts (__data.json with
+	// x-sveltekit-invalidated), so this loader must gate itself.
+	const session = await event.locals.auth();
+	requireRead(session, cluster, ns);
 
 	let pod;
 	try {

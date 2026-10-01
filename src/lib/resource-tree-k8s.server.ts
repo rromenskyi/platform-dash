@@ -9,7 +9,11 @@ import { listClusters } from './clusters.server';
 // global namespace selector already covers that UX. When it makes
 // sense to surface "ns -> resource" deeply (e.g. for a graph view),
 // add another level here without changing the contract.
-export function buildK8sTree(): ResourceNode[] {
+// `canSeeNodes` hides the cluster-scoped Nodes entry from ns-only
+// operators (the page itself 403s for them).
+export function buildK8sTree(
+	canSeeNodes: (cluster: string) => boolean = () => true
+): ResourceNode[] {
 	return listClusters().map((cluster) => ({
 		id: `k8s/${cluster}`,
 		label: cluster,
@@ -22,12 +26,16 @@ export function buildK8sTree(): ResourceNode[] {
 				href: `/k8s/${cluster}/workloads`,
 				meta: { family: 'k8s' }
 			},
-			{
-				id: `k8s/${cluster}/nodes`,
-				label: 'Nodes',
-				href: `/k8s/${cluster}/nodes`,
-				meta: { family: 'k8s' }
-			},
+			...(canSeeNodes(cluster)
+				? [
+						{
+							id: `k8s/${cluster}/nodes`,
+							label: 'Nodes',
+							href: `/k8s/${cluster}/nodes`,
+							meta: { family: 'k8s' }
+						}
+					]
+				: []),
 			{
 				id: `k8s/${cluster}/namespaces`,
 				label: 'Namespaces',
@@ -94,14 +102,14 @@ export function buildK8sTree(): ResourceNode[] {
 
 // Top-level: k8s family + db family. New families append here.
 import { buildDbTree } from './resource-tree-db.server';
-export function buildAllTrees(): ResourceNode[] {
+export function buildAllTrees(canSeeNodes?: (cluster: string) => boolean): ResourceNode[] {
 	const dbChildren = buildDbTree();
 	const trees: ResourceNode[] = [
 		{
 			id: 'k8s',
 			label: 'k8s',
 			meta: { family: 'k8s' },
-			children: () => buildK8sTree()
+			children: () => buildK8sTree(canSeeNodes)
 		}
 	];
 	if (dbChildren.length > 0) {

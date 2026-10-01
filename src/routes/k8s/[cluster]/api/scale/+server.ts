@@ -4,6 +4,7 @@ import { apps, kubeError } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canWrite } from '$lib/authz';
 import { audited } from '$lib/audit.server';
+import { readJson } from '$lib/csrf.server';
 
 // Scale via the /scale subresource so we don't accidentally mutate
 // anything else on the spec. Replicas are clamped server-side: 0..50
@@ -16,12 +17,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
 
-	const body = (await request.json()) as {
+	const body = await readJson<{
 		kind?: 'Deployment' | 'StatefulSet';
 		namespace?: string;
 		name?: string;
 		replicas?: number;
-	};
+	}>(request);
 	if (!body.namespace || !body.name) throw error(400, 'namespace + name required');
 	if (body.kind !== 'Deployment' && body.kind !== 'StatefulSet') {
 		throw error(400, 'kind must be Deployment or StatefulSet');

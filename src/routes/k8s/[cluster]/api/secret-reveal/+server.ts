@@ -4,6 +4,7 @@ import { core } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canRead, canWrite } from '$lib/authz';
 import { record } from '$lib/audit.server';
+import { readJson } from '$lib/csrf.server';
 
 // Per-key secret reveal. Decoded values never ride along in the
 // /secrets/<ns>/<name> page payload (would put plaintext in the
@@ -23,7 +24,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
 
-	const body = (await request.json()) as { namespace?: string; name?: string; key?: string };
+	const body = await readJson<{ namespace?: string; name?: string; key?: string }>(request);
 	if (!body.namespace || !body.name || !body.key) {
 		throw error(400, 'namespace + name + key required');
 	}

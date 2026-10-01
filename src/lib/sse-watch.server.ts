@@ -1,6 +1,7 @@
 import { Watch } from '@kubernetes/client-node';
 import { error } from '@sveltejs/kit';
 import { canRead } from '$lib/authz';
+import { isNamespaceName } from '$lib/k8s-names';
 import { isKnownCluster, getKubeConfig } from '$lib/clusters.server';
 import type { Session } from '@auth/core/types';
 
@@ -34,6 +35,8 @@ export async function buildWatchResponse(
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
 	const ns = url.searchParams.get('ns') || '';
+	// `ns` is interpolated into the raw watch path.
+	if (ns && !isNamespaceName(ns)) throw error(400, 'invalid namespace');
 	// Pass ns so namespace-scoped readers stream their own ns. A
 	// missing ns falls back to a cluster-wide read role (global or
 	// cluster_<x>_*); ns-only operators without ns get 403, since
@@ -47,18 +50,40 @@ export async function buildWatchResponse(
 	const w = new Watch(getKubeConfig(cluster));
 	const encoder = new TextEncoder();
 
+	// One idempotent teardown shared by every exit path: client abort,
+	// stream cancel (adapter-node cancels the body on disconnect), and
+	// the upstream watch ending. Without it, a watch that finished or a
+	// client that left mid-setup kept the k8s watch open forever.
+	let closed = false;
+	let aborter: AbortController | null = null;
+	let ctrl: ReadableStreamDefaultController<Uint8Array> | null = null;
+	function cleanup() {
+		if (closed) return;
+		closed = true;
+		try {
+			aborter?.abort();
+		} catch {
+			/* */
+		}
+		try {
+			ctrl?.close();
+		} catch {
+			/* */
+		}
+	}
+
 	const stream = new ReadableStream<Uint8Array>({
 		async start(controller) {
-			let closed = false;
-			let aborter: AbortController | null = null;
+			ctrl = controller;
 			function emit(payload: object) {
 				if (closed) return;
 				try {
 					controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
 				} catch {
-					closed = true;
+					cleanup();
 				}
 			}
+			request.signal.addEventListener('abort', cleanup);
 			try {
 				aborter = await w.watch(
 					spec.pathFor(ns),
@@ -73,25 +98,30 @@ export async function buildWatchResponse(
 						if (err && !closed) {
 							emit({ type: 'error', message: err instanceof Error ? err.message : String(err) });
 						}
+						// Watch ended (error or apiserver closed it) — close the
+						// SSE so EventSource reconnects instead of sitting "live"
+						// with no further updates.
+						cleanup();
 					}
 				);
 			} catch (err) {
 				emit({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+				cleanup();
 			}
-
-			request.signal.addEventListener('abort', () => {
-				closed = true;
+			// Client left while the watch was still being set up: cleanup()
+			// already ran with no aborter to abort, so stop it now.
+			if (closed) {
 				try {
 					aborter?.abort();
 				} catch {
 					/* */
 				}
-				try {
-					controller.close();
-				} catch {
-					/* */
-				}
-			});
+			} else if (request.signal.aborted) {
+				cleanup();
+			}
+		},
+		cancel() {
+			cleanup();
 		}
 	});
 

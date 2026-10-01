@@ -5,6 +5,7 @@ import { apps, kubeError } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canWrite } from '$lib/authz';
 import { audited } from '$lib/audit.server';
+import { readJson } from '$lib/csrf.server';
 
 // PATCH on AppsV1Api defaults to `application/json-patch+json`
 // (RFC 6902, array of {op,path,value}). Our patch body is a deeply
@@ -35,11 +36,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
 
-	const body = (await request.json()) as {
+	const body = await readJson<{
 		kind?: 'Deployment' | 'StatefulSet';
 		namespace?: string;
 		name?: string;
-	};
+	}>(request);
 	if (!body.namespace || !body.name) throw error(400, 'namespace + name required');
 	if (body.kind !== 'Deployment' && body.kind !== 'StatefulSet') {
 		throw error(400, 'kind must be Deployment or StatefulSet');

@@ -159,9 +159,13 @@ export const load: PageServerLoad = async (event) => {
 				// Most recent OOM first.
 				oomKilled.sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''));
 
+				// Node health is cluster-scoped — only cluster-wide readers
+				// see it (ns-only operators get pods/events of their own
+				// namespaces only).
+				const seeNodes = accessible === 'all';
 				const badNodes: BadNode[] = [];
 				let nodeReadyCount = 0;
-				for (const n of nodes.items) {
+				for (const n of seeNodes ? nodes.items : []) {
 					const conds = n.status?.conditions ?? [];
 					const ready = conds.find((c) => c.type === 'Ready');
 					if (ready?.status === 'True') nodeReadyCount++;
@@ -218,10 +222,15 @@ export const load: PageServerLoad = async (event) => {
 					warningEvents,
 					badNodes,
 					oomKilled: oomKilled.slice(0, 20),
+					// Counts only what this session can read — cluster-wide
+					// totals would leak other tenants' pod/event volume to
+					// ns-only operators.
 					totals: {
-						pods: pods.items.length,
-						nodes: nodes.items.length,
-						events: events.items.length,
+						pods: pods.items.filter((p) => inScope(p.metadata?.namespace)).length,
+						nodes: seeNodes ? nodes.items.length : 0,
+						events: events.items.filter((e) =>
+							inScope(e.metadata?.namespace ?? e.involvedObject?.namespace)
+						).length,
 						oom: oomKilled.length
 					}
 				};

@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
-import { accessibleNamespaces } from '$lib/authz';
+import { requireRead, accessibleNamespaces } from '$lib/authz';
 
 export type NodePod = {
 	namespace: string;
@@ -110,6 +110,10 @@ export const load: PageServerLoad = async (event) => {
 	// so the operator can answer "how much is my workload taking up
 	// on each node" without summing across the whole cluster.
 	const ns = event.url.searchParams.get('ns') || '';
+	// Nodes are cluster-scoped: names, IPs, labels, taints and summed
+	// requests across every tenant. Cluster-wide readers only — ns-only
+	// operators are denied, as authz.ts specifies.
+	requireRead(session, cluster);
 	const accessible = accessibleNamespaces(session, cluster);
 
 	let rows: NodeRow[] = [];

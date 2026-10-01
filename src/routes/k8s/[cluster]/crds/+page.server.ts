@@ -1,5 +1,5 @@
-import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import { requireRead } from '$lib/authz';
 import { apiextensions } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 
@@ -27,9 +27,9 @@ function pickStoredVersion(versions: Array<{ name: string; storage?: boolean; se
 
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
-	if (!session?.user) {
-		throw redirect(303, '/');
-	}
+	// Same entry gate as the cluster layout — page loads can run
+	// without the layouts (__data.json), so check here too.
+	requireRead(session, event.params.cluster, undefined, { forCluster: true });
 
 	const cluster = event.params.cluster;
 	let rows: CrdRow[] = [];

@@ -49,11 +49,13 @@
 		}
 	}
 
-	function isShown(s: RevealState): s is { value: string; masked: boolean } {
-		return s !== null && !('error' in s);
+	// `revealed[key]` is undefined until the first toggle — `'error' in
+	// undefined` would throw, so treat it like null (hidden).
+	function isShown(s: RevealState | undefined): s is { value: string; masked: boolean } {
+		return s != null && !('error' in s);
 	}
-	function isError(s: RevealState): s is { error: string } {
-		return s !== null && 'error' in s;
+	function isError(s: RevealState | undefined): s is { error: string } {
+		return s != null && 'error' in s;
 	}
 </script>
 

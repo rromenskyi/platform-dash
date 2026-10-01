@@ -6,15 +6,18 @@ type ItemMin = {
 	status?: { phase?: string };
 };
 
-// Namespaces are cluster-scoped — the global ?ns= filter doesn't
-// apply, so we always use the cluster-wide path.
+// Namespaces are cluster-scoped, so we always watch the cluster-wide
+// path. buildWatchResponse authorizes ?ns= against a namespace role,
+// so when it's set only that one namespace may be emitted — otherwise
+// an ns-only operator would stream every namespace in the cluster.
 export const GET: RequestHandler = async (event) =>
 	buildWatchResponse(
-		(_cluster) => ({
+		(_cluster, ns) => ({
 			cluster: _cluster,
 			pathFor: () => `/api/v1/namespaces`,
 			mapItem: (raw) => {
 				const n = raw as ItemMin;
+				if (ns && n.metadata?.name !== ns) return null;
 				return {
 					name: n.metadata?.name ?? '?',
 					phase: n.status?.phase ?? '?',

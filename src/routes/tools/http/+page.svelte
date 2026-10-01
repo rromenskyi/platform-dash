@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { toast } from '$lib/toast.svelte';
+	import { redactHeaders } from '$lib/http-headers';
 
 	let { data } = $props();
 
@@ -52,7 +53,7 @@
 		try {
 			localStorage.setItem(
 				STORE_KEY,
-				JSON.stringify({ url, method, headers, body } satisfies Saved)
+				JSON.stringify({ url, method, headers: redactHeaders(headers), body } satisfies Saved)
 			);
 		} catch {
 			/* quota — silent */
@@ -91,7 +92,10 @@
 	function persistHistory() {
 		if (typeof localStorage === 'undefined') return;
 		try {
-			localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, HISTORY_CAP)));
+			const stored = history
+				.slice(0, HISTORY_CAP)
+				.map((h) => ({ ...h, headers: redactHeaders(h.headers) }));
+			localStorage.setItem(HISTORY_KEY, JSON.stringify(stored));
 		} catch {
 			/* quota — silent */
 		}

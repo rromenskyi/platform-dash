@@ -171,8 +171,20 @@ function originAllowed(req) {
 	}
 }
 
+// k8s name checks (mirror src/lib/k8s-names.ts). Exec.exec() interpolates
+// ns/pod verbatim into the API path — a decoded `../` in either would
+// let a namespace-scoped admin open a shell in another namespace.
+const DNS1123_LABEL = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
+const DNS1123_SUBDOMAIN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
+const isNamespaceName = (s) => typeof s === 'string' && DNS1123_LABEL.test(s);
+const isObjectName = (s) => typeof s === 'string' && s.length <= 253 && DNS1123_SUBDOMAIN.test(s);
+
 async function handleExecUpgrade(req, socket, head, params) {
 	if (!originAllowed(req)) {
+		socket.destroy();
+		return;
+	}
+	if (!isNamespaceName(params.ns) || !isObjectName(params.pod)) {
 		socket.destroy();
 		return;
 	}
@@ -231,6 +243,26 @@ async function handleExecUpgrade(req, socket, head, params) {
 		} catch {}
 	}
 
+	// Without an 'error' listener, a protocol error (oversized frame,
+	// bad opcode, socket reset) is an unhandled EventEmitter error and
+	// takes the whole process down. Registered before any await.
+	ws.on('error', (err) => {
+		console.error('ws error', err?.message ?? err);
+		closeAll();
+	});
+
+	// Registered before the exec await so a client that leaves while
+	// exec is connecting still tears the session down.
+	ws.on('close', () => {
+		// Only sessions that actually opened get a "closed" audit line;
+		// connect failures already logged their own error.
+		if (upstream) {
+			const ms = Math.round(performance.now() - start);
+			audit({ ...baseAudit, outcome: 'ok', message: 'session closed', durationMs: ms });
+		}
+		closeAll();
+	});
+
 	try {
 		const exec = new Exec(getKubeConfig(params.cluster));
 		upstream = await exec.exec(
@@ -271,6 +303,14 @@ async function handleExecUpgrade(req, socket, head, params) {
 		return;
 	}
 
+	// Client left while exec was connecting — close the late upstream.
+	if (closed) {
+		try {
+			upstream.close();
+		} catch {}
+		return;
+	}
+
 	audit({ ...baseAudit, outcome: 'ok', message: 'session opened', durationMs: 0 });
 
 	ws.on('message', (raw) => {
@@ -304,11 +344,6 @@ async function handleExecUpgrade(req, socket, head, params) {
 		}
 	});
 
-	ws.on('close', () => {
-		const ms = Math.round(performance.now() - start);
-		audit({ ...baseAudit, outcome: 'ok', message: 'session closed', durationMs: ms });
-		closeAll();
-	});
 }
 
 // ── Cloudshell: ephemeral pod per session ─────────────────────────────
@@ -366,17 +401,24 @@ async function createCloudshellPod(cluster, owner) {
 	};
 	await k.createNamespacedPod({ namespace: CLOUDSHELL_NAMESPACE, body });
 	const deadline = Date.now() + CLOUDSHELL_BOOT_TIMEOUT_MS;
-	for (;;) {
-		const got = await k.readNamespacedPod({ name, namespace: CLOUDSHELL_NAMESPACE });
-		const phase = got.status?.phase;
-		if (phase === 'Running') return { name, namespace: CLOUDSHELL_NAMESPACE };
-		if (phase === 'Failed' || phase === 'Succeeded') {
-			throw new Error(`cloudshell pod entered ${phase} before becoming Running`);
+	try {
+		for (;;) {
+			const got = await k.readNamespacedPod({ name, namespace: CLOUDSHELL_NAMESPACE });
+			const phase = got.status?.phase;
+			if (phase === 'Running') return { name, namespace: CLOUDSHELL_NAMESPACE };
+			if (phase === 'Failed' || phase === 'Succeeded') {
+				throw new Error(`cloudshell pod entered ${phase} before becoming Running`);
+			}
+			if (Date.now() > deadline) {
+				throw new Error(`cloudshell pod did not reach Running within ${CLOUDSHELL_BOOT_TIMEOUT_MS}ms (phase=${phase ?? '?'})`);
+			}
+			await new Promise((r) => setTimeout(r, 500));
 		}
-		if (Date.now() > deadline) {
-			throw new Error(`cloudshell pod did not reach Running within ${CLOUDSHELL_BOOT_TIMEOUT_MS}ms (phase=${phase ?? '?'})`);
-		}
-		await new Promise((r) => setTimeout(r, 500));
+	} catch (err) {
+		// The caller never learns the pod's name on failure, so nothing
+		// else would delete it before activeDeadlineSeconds (hours).
+		await deleteCloudshellPod(cluster, CLOUDSHELL_NAMESPACE, name);
+		throw err;
 	}
 }
 
@@ -443,6 +485,11 @@ async function handleCloudshellUpgrade(req, socket, head, params) {
 		}
 	}
 
+	ws.on('error', (err) => {
+		console.error('ws error', err?.message ?? err);
+		closeAll();
+	});
+
 	ws.on('close', () => {
 		const ms = Math.round(performance.now() - start);
 		audit({
@@ -467,6 +514,13 @@ async function handleCloudshellUpgrade(req, socket, head, params) {
 		try {
 			stdin.end();
 		} catch {}
+		return;
+	}
+
+	// Client left while the pod was booting: closeAll() already ran with
+	// pod === null, so this pod would be orphaned. Delete it now.
+	if (closed) {
+		deleteCloudshellPod(params.cluster, pod.namespace, pod.name);
 		return;
 	}
 
@@ -523,6 +577,14 @@ async function handleCloudshellUpgrade(req, socket, head, params) {
 		} catch {}
 		try {
 			stdin.end();
+		} catch {}
+		return;
+	}
+
+	// Client left while exec was connecting — close the late upstream.
+	if (closed) {
+		try {
+			upstream.close();
 		} catch {}
 		return;
 	}
@@ -594,7 +656,6 @@ server.on('upgrade', (req, socket, head) => {
 		socket.destroy();
 		return;
 	}
-	const u = new URL(req.url, 'http://localhost');
 	// `handle*Upgrade` is async; the upgrade event listener can't await
 	// it, so an unhandled rejection inside would otherwise hit the
 	// process-wide `unhandledRejection` and crash node 22 in strict
@@ -605,25 +666,33 @@ server.on('upgrade', (req, socket, head) => {
 			socket.destroy();
 		} catch {}
 	};
-	const exec = /^\/ws\/exec\/([^/]+)\/([^/]+)\/([^/?#]+)$/.exec(u.pathname);
-	if (exec) {
-		handleExecUpgrade(req, socket, head, {
-			cluster: decodeURIComponent(exec[1]),
-			ns: decodeURIComponent(exec[2]),
-			pod: decodeURIComponent(exec[3]),
-			container: u.searchParams.get('container') ?? undefined,
-			shell: u.searchParams.get('shell') ?? undefined
-		}).catch((err) => onFail(err, 'handleExecUpgrade'));
-		return;
+	// URL parsing + decodeURIComponent throw synchronously (`/ws/cloudshell/%`
+	// → URIError) — outside the .catch() below, that would be an uncaught
+	// exception that kills the process, pre-auth.
+	try {
+		const u = new URL(req.url, 'http://localhost');
+		const exec = /^\/ws\/exec\/([^/]+)\/([^/]+)\/([^/?#]+)$/.exec(u.pathname);
+		if (exec) {
+			handleExecUpgrade(req, socket, head, {
+				cluster: decodeURIComponent(exec[1]),
+				ns: decodeURIComponent(exec[2]),
+				pod: decodeURIComponent(exec[3]),
+				container: u.searchParams.get('container') ?? undefined,
+				shell: u.searchParams.get('shell') ?? undefined
+			}).catch((err) => onFail(err, 'handleExecUpgrade'));
+			return;
+		}
+		const cloud = /^\/ws\/cloudshell\/([^/?#]+)$/.exec(u.pathname);
+		if (cloud) {
+			handleCloudshellUpgrade(req, socket, head, {
+				cluster: decodeURIComponent(cloud[1])
+			}).catch((err) => onFail(err, 'handleCloudshellUpgrade'));
+			return;
+		}
+		socket.destroy();
+	} catch (err) {
+		onFail(err, 'upgrade dispatch');
 	}
-	const cloud = /^\/ws\/cloudshell\/([^/?#]+)$/.exec(u.pathname);
-	if (cloud) {
-		handleCloudshellUpgrade(req, socket, head, {
-			cluster: decodeURIComponent(cloud[1])
-		}).catch((err) => onFail(err, 'handleCloudshellUpgrade'));
-		return;
-	}
-	socket.destroy();
 });
 
 server.listen(port, () => {
