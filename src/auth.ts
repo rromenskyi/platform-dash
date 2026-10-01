@@ -38,6 +38,9 @@ function extractZitadelRoles(idToken: string | undefined): string[] {
 //
 // `$env/dynamic/private` resolves at runtime (process.env), so
 // k8s ConfigMap/Secret injection works without a build-time .env.
+// Absolute session lifetime, independent of activity (see jwt()).
+const SESSION_ABSOLUTE_MS = 12 * 60 * 60 * 1000;
+
 export const { handle, signIn, signOut } = SvelteKitAuth({
 	providers: [
 		ZITADEL({
@@ -51,6 +54,8 @@ export const { handle, signIn, signOut } = SvelteKitAuth({
 	],
 	secret: env.AUTH_SECRET,
 	trustHost: true,
+	// Cookie lifetime matches the absolute cap enforced in jwt().
+	session: { maxAge: SESSION_ABSOLUTE_MS / 1000 },
 	callbacks: {
 		// Keep the id_token + access_token on the JWT so server code
 		// can call Zitadel APIs on behalf of the user. Also pull the
@@ -63,6 +68,15 @@ export const { handle, signIn, signOut } = SvelteKitAuth({
 				token.accessToken = account.access_token;
 				token.idToken = account.id_token;
 				token.roles = extractZitadelRoles(account.id_token);
+				token.authAt = Date.now();
+			}
+			// Roles are read from the id_token only at sign-in, and the JWT
+			// session slides on every request — an active user would keep
+			// a role revoked in Zitadel indefinitely. Force a fresh sign-in
+			// (and fresh roles) after an absolute lifetime. Tokens minted
+			// before authAt existed count as expired.
+			if (!token.authAt || Date.now() - token.authAt > SESSION_ABSOLUTE_MS) {
+				return null;
 			}
 			return token;
 		},
