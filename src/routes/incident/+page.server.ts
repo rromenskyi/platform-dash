@@ -218,10 +218,15 @@ export const load: PageServerLoad = async (event) => {
 					warningEvents,
 					badNodes,
 					oomKilled: oomKilled.slice(0, 20),
+					// Counts only what this session can read — cluster-wide
+					// totals would leak other tenants' pod/event volume to
+					// ns-only operators.
 					totals: {
-						pods: pods.items.length,
+						pods: pods.items.filter((p) => inScope(p.metadata?.namespace)).length,
 						nodes: nodes.items.length,
-						events: events.items.length,
+						events: events.items.filter((e) =>
+							inScope(e.metadata?.namespace ?? e.involvedObject?.namespace)
+						).length,
 						oom: oomKilled.length
 					}
 				};
