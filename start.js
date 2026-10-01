@@ -243,6 +243,14 @@ async function handleExecUpgrade(req, socket, head, params) {
 		} catch {}
 	}
 
+	// Without an 'error' listener, a protocol error (oversized frame,
+	// bad opcode, socket reset) is an unhandled EventEmitter error and
+	// takes the whole process down. Registered before any await.
+	ws.on('error', (err) => {
+		console.error('ws error', err?.message ?? err);
+		closeAll();
+	});
+
 	try {
 		const exec = new Exec(getKubeConfig(params.cluster));
 		upstream = await exec.exec(
@@ -454,6 +462,11 @@ async function handleCloudshellUpgrade(req, socket, head, params) {
 			deleteCloudshellPod(params.cluster, pod.namespace, pod.name);
 		}
 	}
+
+	ws.on('error', (err) => {
+		console.error('ws error', err?.message ?? err);
+		closeAll();
+	});
 
 	ws.on('close', () => {
 		const ms = Math.round(performance.now() - start);
