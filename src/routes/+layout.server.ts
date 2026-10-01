@@ -65,6 +65,8 @@ export const load: LayoutServerLoad = async (event) => {
 		session,
 		// Sign-in button target + label (provider-agnostic OIDC).
 		authProvider: { id: oidc.id, name: oidc.name },
+		// Optional deeplink to the cluster's Grafana; cards hide when unset.
+		grafanaUrl: session?.user ? env.DASH_GRAFANA_URL || null : null,
 		// Build identity only for signed-in users — it's a version
 		// fingerprint, and inlining it client-side shipped it to anyone.
 		build: session?.user
