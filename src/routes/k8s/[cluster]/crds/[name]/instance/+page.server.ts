@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { apiextensions, customObjects } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { requireRead } from '$lib/authz';
 
 function pickServingVersion(
 	versions:
@@ -66,6 +67,17 @@ export const load: PageServerLoad = async (event) => {
 
 	if (!servingVersion) {
 		throw error(409, `CRD "${name}" has no served version`);
+	}
+
+	// The layout only gates entry to the cluster surface. Namespaced
+	// instances need read on that namespace; cluster-scoped ones need a
+	// cluster-wide read role (ns-only operators are denied, matching the
+	// list page's hideClusterScopedInstances).
+	if (scope === 'Namespaced') {
+		if (!ns) throw error(400, 'missing namespace (?ns=) for a namespaced CRD');
+		requireRead(session, cluster, ns);
+	} else {
+		requireRead(session, cluster);
 	}
 
 	let object: unknown = null;
