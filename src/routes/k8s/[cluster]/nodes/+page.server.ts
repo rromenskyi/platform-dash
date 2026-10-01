@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
-import { accessibleNamespaces } from '$lib/authz';
+import { requireRead, accessibleNamespaces } from '$lib/authz';
 
 export type NodePod = {
 	namespace: string;
@@ -111,6 +111,10 @@ export const load: PageServerLoad = async (event) => {
 	// on each node" without summing across the whole cluster.
 	const ns = event.url.searchParams.get('ns') || '';
 	const accessible = accessibleNamespaces(session, cluster);
+	// ?ns= drives listNamespacedPod and the per-node request sums, so it
+	// must be a namespace the operator can read — otherwise an ns-only
+	// user could pull another tenant's resource usage.
+	if (ns) requireRead(session, cluster, ns);
 
 	let rows: NodeRow[] = [];
 	let error: string | null = null;
