@@ -1,7 +1,7 @@
 # platform-dash
 
-SvelteKit operator console for [platform](https://github.com/rromenskyi/platform).
-OIDC login through the platform's [Zitadel](https://github.com/rromenskyi/terraform-minikube-platform) IdP.
+SvelteKit operator console for [terraform-minikube-platform](https://github.com/rromenskyi/terraform-minikube-platform).
+OIDC login through the platform's Zitadel IdP.
 
 ## Stack
 
