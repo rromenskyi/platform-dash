@@ -18,6 +18,9 @@ function buildSha(): string {
 
 export default defineConfig({
 	plugins: [sveltekit()],
+	// Component tests mount in jsdom — resolve Svelte's client build,
+	// not the SSR one (`lifecycle_function_unavailable` otherwise).
+	resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
 	define: {
 		__BUILD_SHA__: JSON.stringify(buildSha()),
 		__BUILD_TIME__: JSON.stringify(new Date().toISOString())
