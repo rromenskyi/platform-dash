@@ -1,0 +1,10 @@
+apiVersion: v2
+name: platform-dash
+description: Operator dashboard for Kubernetes / k3s clusters — workloads, nodes, logs, pod shells, secrets, incidents. OIDC login.
+type: application
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/rromenskyi/platform-dash
+sources:
+  - https://github.com/rromenskyi/platform-dash
+keywords: [kubernetes, k3s, dashboard, oidc]
