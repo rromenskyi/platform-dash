@@ -3,12 +3,9 @@
 <section>
 	<h2>Theme</h2>
 	<p>
-		Currently dark-only — matches the ipsupport.us colour scheme (stone + indigo on
-		stone-900). A light theme is on the backlog; the palette is already exposed via
-		CSS custom properties under <code>:root</code>, so switching only needs a
-		<code>[data-theme="light"]</code> override block + a toggle here.
+		Switch between dark and light with the ☾ / ☀ button in the top bar. The choice is saved in
+		this browser.
 	</p>
-	<button class="ghost" disabled>Light theme — backlog</button>
 </section>
 
 <style>

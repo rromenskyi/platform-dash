@@ -226,19 +226,19 @@
 			aria-label="Toggle theme"
 		>{theme === 'dark' ? '☾' : '☀'}</button>
 		{#if session?.user}
-			<a href="/profile" class:active={pathname === '/profile' || pathname.startsWith('/profile/')}>Profile</a>
-			<a href="/settings" class:active={pathname === '/settings' || pathname.startsWith('/settings/')}>Settings</a>
+			<a class="acct" href="/profile" class:active={pathname === '/profile' || pathname.startsWith('/profile/')}>Profile</a>
+			<a class="acct" href="/settings" class:active={pathname === '/settings' || pathname.startsWith('/settings/')}>Settings</a>
 		{/if}
 		{#if session?.user && canRead}
-			<SavedViews />
+			<span class="saved"><SavedViews /></span>
 		{/if}
 		{#if session?.user}
 			{#if roleLabel}
-				<span class="role role-{roleLabel}">{roleLabel}</span>
+				<span class="role role-{roleLabel}" title={session.user.email ?? session.user.name ?? ''}>{roleLabel}</span>
 			{:else}
 				<span class="role role-none" title="Sign-in succeeded but no platform_admin or platform_sre role assigned">no role</span>
 			{/if}
-			<span class="muted">{session.user.email ?? session.user.name}</span>
+			<span class="muted who">{session.user.email ?? session.user.name}</span>
 			<button class="ghost" onclick={() => signOut()}>Sign out</button>
 		{/if}
 	</nav>
@@ -345,6 +345,24 @@
 					</ul>
 				</div>
 			{/if}
+			<!-- Topbar drops Profile/Settings on narrow screens; reachable here. -->
+			<div class="group mobile-only">
+				<h3>Account</h3>
+				<ul class="tree">
+					<li class="tnode">
+						<div class="trow">
+							<span class="caret-spacer"></span>
+							<a class="tlink" class:active={isHrefActive('/profile')} href="/profile">Profile</a>
+						</div>
+					</li>
+					<li class="tnode">
+						<div class="trow">
+							<span class="caret-spacer"></span>
+							<a class="tlink" class:active={isHrefActive('/settings')} href="/settings">Settings</a>
+						</div>
+					</li>
+				</ul>
+			</div>
 		</aside>
 	{/if}
 
@@ -364,8 +382,8 @@
 <style>
 	.topbar {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
+		gap: 0.6rem;
 		padding: 0.85rem var(--gutter);
 		border-bottom: 1px solid var(--rule);
 		background: var(--bg);
@@ -386,15 +404,17 @@
 		padding: 0.1rem 0.4rem;
 		border: 1px solid var(--rule);
 		border-radius: 4px;
-		margin-left: 0.5rem;
 		text-decoration: none;
 	}
 	.build:hover { color: var(--fg); border-color: var(--muted); }
 
 	.topnav {
 		display: flex;
-		gap: 1.25rem;
+		gap: 1rem;
 		align-items: center;
+		margin-left: auto;
+		min-width: 0;
+		white-space: nowrap;
 	}
 	.topnav a {
 		color: var(--fg-soft);
@@ -621,10 +641,23 @@
 		cursor: default;
 	}
 
+	.mobile-only { display: none; }
+
+	@media (max-width: 1100px) {
+		.topnav .who { display: none; }
+	}
+
 	@media (max-width: 720px) {
 		.layout {
 			grid-template-columns: 1fr;
 		}
+		.mobile-only { display: block; }
+		.topnav { gap: 0.6rem; }
+		.build,
+		.topnav .apipill,
+		.topnav .acct,
+		.topnav .saved,
+		.topnav .role { display: none; }
 		.hamburger { display: inline-block; }
 		.sidebar {
 			position: fixed;

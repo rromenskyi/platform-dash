@@ -852,6 +852,9 @@
 	td.image { max-width: 280px; }
 	.image-tag {
 		display: inline-block;
+		/* inline-block + overflow:hidden puts the baseline at the bottom
+		   edge, lifting the chip above the row's text — centre it. */
+		vertical-align: middle;
 		font-family: var(--font-mono);
 		font-size: 0.78em;
 		padding: 0.1rem 0.45rem;

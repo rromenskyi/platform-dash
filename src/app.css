@@ -134,3 +134,14 @@ table thead th {
 	z-index: 1;
 	box-shadow: 0 1px 0 var(--rule);
 }
+
+/* Narrow screens: let wide tables scroll sideways instead of being
+   clipped. Desktop keeps normal tables so the sticky <thead> above
+   still pins against the page scroll. */
+@media (max-width: 720px) {
+	main table {
+		display: block;
+		max-width: 100%;
+		overflow-x: auto;
+	}
+}
