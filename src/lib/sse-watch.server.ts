@@ -1,6 +1,7 @@
 import { Watch } from '@kubernetes/client-node';
 import { error } from '@sveltejs/kit';
 import { canRead } from '$lib/authz';
+import { isNamespaceName } from '$lib/k8s-names';
 import { isKnownCluster, getKubeConfig } from '$lib/clusters.server';
 import type { Session } from '@auth/core/types';
 
@@ -34,6 +35,8 @@ export async function buildWatchResponse(
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
 	const ns = url.searchParams.get('ns') || '';
+	// `ns` is interpolated into the raw watch path.
+	if (ns && !isNamespaceName(ns)) throw error(400, 'invalid namespace');
 	// Pass ns so namespace-scoped readers stream their own ns. A
 	// missing ns falls back to a cluster-wide read role (global or
 	// cluster_<x>_*); ns-only operators without ns get 403, since

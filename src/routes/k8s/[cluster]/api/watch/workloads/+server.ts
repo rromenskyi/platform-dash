@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { watcher } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canRead } from '$lib/authz';
+import { isNamespaceName } from '$lib/k8s-names';
 
 // SSE feed of pod / deployment / statefulset events. We open three
 // parallel watches and fan their events into one stream so the
@@ -126,6 +127,8 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	const { cluster } = params;
 	if (!isKnownCluster(cluster)) throw error(404, `Unknown cluster "${cluster}"`);
 	const ns = url.searchParams.get('ns') || '';
+	// `ns` is interpolated into the raw watch paths below.
+	if (ns && !isNamespaceName(ns)) throw error(400, 'invalid namespace');
 	if (!canRead(session, cluster, ns || undefined)) {
 		throw error(403, 'read role required (cluster-wide or matching ?ns=)');
 	}

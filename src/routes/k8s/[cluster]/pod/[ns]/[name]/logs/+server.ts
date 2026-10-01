@@ -4,6 +4,7 @@ import type { RequestHandler } from './$types';
 import { logger } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canRead } from '$lib/authz';
+import { isNamespaceName, isObjectName } from '$lib/k8s-names';
 
 // SSE wrapper around `Log.log()` — k8s streams raw bytes; we split
 // them on newlines and re-emit one `data: <line>` event per line so
@@ -17,6 +18,11 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	const { cluster, ns, name } = params;
 	if (!isKnownCluster(cluster)) {
 		throw error(404, `Unknown cluster "${cluster}"`);
+	}
+	// Log.log() builds the URL from raw ns/name — reject anything that
+	// isn't a k8s name before it can path-traverse to another resource.
+	if (!isNamespaceName(ns) || !isObjectName(name)) {
+		throw error(400, 'invalid namespace or pod name');
 	}
 	// Pass cluster + ns so cluster-scoped and namespace-scoped readers
 	// both get through. Without ns, namespace_<x>_sre operators would

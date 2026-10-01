@@ -171,8 +171,20 @@ function originAllowed(req) {
 	}
 }
 
+// k8s name checks (mirror src/lib/k8s-names.ts). Exec.exec() interpolates
+// ns/pod verbatim into the API path — a decoded `../` in either would
+// let a namespace-scoped admin open a shell in another namespace.
+const DNS1123_LABEL = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
+const DNS1123_SUBDOMAIN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
+const isNamespaceName = (s) => typeof s === 'string' && DNS1123_LABEL.test(s);
+const isObjectName = (s) => typeof s === 'string' && s.length <= 253 && DNS1123_SUBDOMAIN.test(s);
+
 async function handleExecUpgrade(req, socket, head, params) {
 	if (!originAllowed(req)) {
+		socket.destroy();
+		return;
+	}
+	if (!isNamespaceName(params.ns) || !isObjectName(params.pod)) {
 		socket.destroy();
 		return;
 	}

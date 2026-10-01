@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { watcher } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
 import { canRead } from '$lib/authz';
+import { isNamespaceName, isObjectName } from '$lib/k8s-names';
 
 // SSE feed of Event objects. Three modes by query string:
 //   ?ns=&name=&kind=  → events for that single resource (pod detail).
@@ -19,6 +20,10 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	const ns = url.searchParams.get('ns');
 	const name = url.searchParams.get('name');
 	const kind = url.searchParams.get('kind') || 'Pod';
+	// ns goes into the raw watch path, name/kind into a fieldSelector.
+	if (ns && !isNamespaceName(ns)) throw error(400, 'invalid namespace');
+	if (name && !isObjectName(name)) throw error(400, 'invalid name');
+	if (!/^[A-Za-z]+$/.test(kind)) throw error(400, 'invalid kind');
 
 	// ns-only operators must scope to their own ns — a cluster-wide
 	// /events stream without ns crosses their boundary.
