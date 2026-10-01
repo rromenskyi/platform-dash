@@ -106,10 +106,13 @@ async function compute(allowed: string[]): Promise<IncidentSummary> {
 	};
 }
 
-function kickRefresh(canReadCluster: (cluster: string) => boolean) {
+// The cache is shared by every session, so always compute every
+// configured cluster and trim per caller on read (filterAllowed).
+// Filling it with the triggering user's clusters let an ns-only user
+// (no clusters) blank the pill for admins until the next refresh.
+function kickRefresh() {
 	if (inFlight) return;
-	const allowed = listClusters().filter(canReadCluster);
-	inFlight = compute(allowed)
+	inFlight = compute(listClusters())
 		.then((s) => {
 			cached = s;
 			return s;
@@ -138,7 +141,7 @@ export function incidentSummary(
 	canReadCluster: (cluster: string) => boolean
 ): IncidentSummary | null {
 	const fresh = cached && Date.now() - cached.at < TTL_MS;
-	if (!fresh) kickRefresh(canReadCluster);
+	if (!fresh) kickRefresh();
 	if (!cached) return null;
 	return filterAllowed(cached, canReadCluster);
 }
