@@ -10,11 +10,11 @@
 <h2>Tokens</h2>
 <details>
 	<summary>id_token</summary>
-	<pre>{data.session?.idToken ?? '(missing)'}</pre>
+	<pre>{data.idToken ?? '(missing)'}</pre>
 </details>
 <details>
 	<summary>access_token</summary>
-	<pre>{data.session?.accessToken ?? '(missing)'}</pre>
+	<pre>{data.accessToken ?? '(missing)'}</pre>
 </details>
 
 <style>

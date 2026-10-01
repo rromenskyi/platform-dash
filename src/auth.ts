@@ -52,10 +52,9 @@ export const { handle, signIn, signOut } = SvelteKitAuth({
 	secret: env.AUTH_SECRET,
 	trustHost: true,
 	callbacks: {
-		// Surface the id_token + access_token onto the session so
-		// downstream routes can call Zitadel APIs or the sipmesh
-		// backend on behalf of the user. Also pull the project roles
-		// claim out of the id_token — Zitadel emits them under
+		// Keep the id_token + access_token on the JWT so server code
+		// can call Zitadel APIs on behalf of the user. Also pull the
+		// project roles claim out of the id_token — Zitadel emits them under
 		// `urn:zitadel:iam:org:project:roles` when the Application has
 		// `id_token_role_assertion = true` (set in the platform repo's
 		// modules/zitadel-app).
@@ -67,9 +66,11 @@ export const { handle, signIn, signOut } = SvelteKitAuth({
 			}
 			return token;
 		},
+		// Tokens stay in the encrypted JWT cookie only. Every layout
+		// returns the session to the page, so putting them here would
+		// serialize bearer tokens into every page's HTML/__data.json
+		// (and /auth/session). /profile reads them via getToken().
 		async session({ session, token }) {
-			session.accessToken = token.accessToken as string | undefined;
-			session.idToken = token.idToken as string | undefined;
 			session.roles = (token.roles as string[] | undefined) ?? [];
 			return session;
 		}

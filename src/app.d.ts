@@ -12,8 +12,6 @@ declare global {
 
 declare module '@auth/core/types' {
 	interface Session {
-		accessToken?: string;
-		idToken?: string;
 		roles?: string[];
 	}
 }
