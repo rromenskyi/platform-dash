@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { Terminal } from 'xterm';
-	import { FitAddon } from 'xterm-addon-fit';
+	// Type-only: xterm touches `self` at module load, so a static import
+	// breaks SSR of this page. The runtime modules load in ensureTerm().
+	import type { Terminal } from 'xterm';
+	import type { FitAddon } from 'xterm-addon-fit';
 	import 'xterm/css/xterm.css';
 	import { toast } from '$lib/toast.svelte';
 
@@ -33,8 +35,20 @@
 	const ERR = 3;
 	const RESIZE = 4;
 
-	function ensureTerm() {
-		if (term || !termHost) return;
+	// svelte-ignore non_reactive_update
+	let termReady: Promise<void> | null = null;
+
+	function ensureTerm(): Promise<void> {
+		if (!termHost) return Promise.resolve();
+		termReady ??= loadTerm(termHost);
+		return termReady;
+	}
+
+	async function loadTerm(host: HTMLDivElement) {
+		const [{ Terminal }, { FitAddon }] = await Promise.all([
+			import('xterm'),
+			import('xterm-addon-fit')
+		]);
 		term = new Terminal({
 			cursorBlink: true,
 			fontFamily: 'ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace',
@@ -43,7 +57,7 @@
 		});
 		fit = new FitAddon();
 		term.loadAddon(fit);
-		term.open(termHost);
+		term.open(host);
 		fit.fit();
 		// Forward keystrokes to upstream as channel-0 frames.
 		term.onData((d) => {
@@ -66,11 +80,14 @@
 		});
 	}
 
-	function connect() {
+	async function connect() {
 		if (connecting || connected) return;
-		ensureTerm();
-		if (!term) return;
 		connecting = true;
+		await ensureTerm();
+		if (!term) {
+			connecting = false;
+			return;
+		}
 		lastError = null;
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const u = new URL(`${proto}//${location.host}/ws/exec/${data.cluster}/${data.ns}/${data.name}`);
