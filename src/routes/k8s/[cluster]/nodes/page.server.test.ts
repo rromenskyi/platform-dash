@@ -23,15 +23,17 @@ function event(roles: string[], query: string) {
 	} as unknown as Parameters<typeof load>[0];
 }
 
-describe('nodes loader ?ns= authz', () => {
-	it('denies a namespace reader usage sums for another namespace', async () => {
-		await expect(load(event(['namespace_team-a_sre'], 'ns=team-b'))).rejects.toMatchObject({
-			status: 403
-		});
+describe('nodes loader authz', () => {
+	it('denies namespace-only operators, even for their own namespace', async () => {
+		for (const q of ['', 'ns=team-a', 'ns=team-b']) {
+			await expect(load(event(['namespace_team-a_sre'], q))).rejects.toMatchObject({
+				status: 403
+			});
+		}
 		expect(listNamespacedPod).not.toHaveBeenCalled();
 	});
 
-	it('allows their own namespace', async () => {
-		await expect(load(event(['namespace_team-a_sre'], 'ns=team-a'))).resolves.toBeTruthy();
+	it('allows cluster-wide readers', async () => {
+		await expect(load(event(['cluster_local_sre'], 'ns=team-b'))).resolves.toBeTruthy();
 	});
 });

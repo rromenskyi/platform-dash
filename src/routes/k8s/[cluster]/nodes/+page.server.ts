@@ -110,11 +110,11 @@ export const load: PageServerLoad = async (event) => {
 	// so the operator can answer "how much is my workload taking up
 	// on each node" without summing across the whole cluster.
 	const ns = event.url.searchParams.get('ns') || '';
+	// Nodes are cluster-scoped: names, IPs, labels, taints and summed
+	// requests across every tenant. Cluster-wide readers only — ns-only
+	// operators are denied, as authz.ts specifies.
+	requireRead(session, cluster);
 	const accessible = accessibleNamespaces(session, cluster);
-	// ?ns= drives listNamespacedPod and the per-node request sums, so it
-	// must be a namespace the operator can read — otherwise an ns-only
-	// user could pull another tenant's resource usage.
-	if (ns) requireRead(session, cluster, ns);
 
 	let rows: NodeRow[] = [];
 	let error: string | null = null;

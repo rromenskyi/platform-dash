@@ -35,7 +35,7 @@ export const load: LayoutServerLoad = async (event) => {
 		// Background refresh — never await. Slow CM/Secret reads
 		// would otherwise block every nav.
 		kickDbTargetsFresh();
-		tree = await materialize(buildAllTrees());
+		tree = await materialize(buildAllTrees((c) => canRead(session, c)));
 	}
 	// Lightweight snapshot for the topbar status pill — only counts +
 	// p95 + recent error count. Cheap (in-memory ring snapshot).
