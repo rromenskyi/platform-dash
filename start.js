@@ -251,6 +251,18 @@ async function handleExecUpgrade(req, socket, head, params) {
 		closeAll();
 	});
 
+	// Registered before the exec await so a client that leaves while
+	// exec is connecting still tears the session down.
+	ws.on('close', () => {
+		// Only sessions that actually opened get a "closed" audit line;
+		// connect failures already logged their own error.
+		if (upstream) {
+			const ms = Math.round(performance.now() - start);
+			audit({ ...baseAudit, outcome: 'ok', message: 'session closed', durationMs: ms });
+		}
+		closeAll();
+	});
+
 	try {
 		const exec = new Exec(getKubeConfig(params.cluster));
 		upstream = await exec.exec(
@@ -291,6 +303,14 @@ async function handleExecUpgrade(req, socket, head, params) {
 		return;
 	}
 
+	// Client left while exec was connecting — close the late upstream.
+	if (closed) {
+		try {
+			upstream.close();
+		} catch {}
+		return;
+	}
+
 	audit({ ...baseAudit, outcome: 'ok', message: 'session opened', durationMs: 0 });
 
 	ws.on('message', (raw) => {
@@ -324,11 +344,6 @@ async function handleExecUpgrade(req, socket, head, params) {
 		}
 	});
 
-	ws.on('close', () => {
-		const ms = Math.round(performance.now() - start);
-		audit({ ...baseAudit, outcome: 'ok', message: 'session closed', durationMs: ms });
-		closeAll();
-	});
 }
 
 // ── Cloudshell: ephemeral pod per session ─────────────────────────────
@@ -386,17 +401,24 @@ async function createCloudshellPod(cluster, owner) {
 	};
 	await k.createNamespacedPod({ namespace: CLOUDSHELL_NAMESPACE, body });
 	const deadline = Date.now() + CLOUDSHELL_BOOT_TIMEOUT_MS;
-	for (;;) {
-		const got = await k.readNamespacedPod({ name, namespace: CLOUDSHELL_NAMESPACE });
-		const phase = got.status?.phase;
-		if (phase === 'Running') return { name, namespace: CLOUDSHELL_NAMESPACE };
-		if (phase === 'Failed' || phase === 'Succeeded') {
-			throw new Error(`cloudshell pod entered ${phase} before becoming Running`);
+	try {
+		for (;;) {
+			const got = await k.readNamespacedPod({ name, namespace: CLOUDSHELL_NAMESPACE });
+			const phase = got.status?.phase;
+			if (phase === 'Running') return { name, namespace: CLOUDSHELL_NAMESPACE };
+			if (phase === 'Failed' || phase === 'Succeeded') {
+				throw new Error(`cloudshell pod entered ${phase} before becoming Running`);
+			}
+			if (Date.now() > deadline) {
+				throw new Error(`cloudshell pod did not reach Running within ${CLOUDSHELL_BOOT_TIMEOUT_MS}ms (phase=${phase ?? '?'})`);
+			}
+			await new Promise((r) => setTimeout(r, 500));
 		}
-		if (Date.now() > deadline) {
-			throw new Error(`cloudshell pod did not reach Running within ${CLOUDSHELL_BOOT_TIMEOUT_MS}ms (phase=${phase ?? '?'})`);
-		}
-		await new Promise((r) => setTimeout(r, 500));
+	} catch (err) {
+		// The caller never learns the pod's name on failure, so nothing
+		// else would delete it before activeDeadlineSeconds (hours).
+		await deleteCloudshellPod(cluster, CLOUDSHELL_NAMESPACE, name);
+		throw err;
 	}
 }
 
@@ -495,6 +517,13 @@ async function handleCloudshellUpgrade(req, socket, head, params) {
 		return;
 	}
 
+	// Client left while the pod was booting: closeAll() already ran with
+	// pod === null, so this pod would be orphaned. Delete it now.
+	if (closed) {
+		deleteCloudshellPod(params.cluster, pod.namespace, pod.name);
+		return;
+	}
+
 	audit({
 		...baseAudit,
 		target: { ...baseAudit.target, name: pod.name },
@@ -548,6 +577,14 @@ async function handleCloudshellUpgrade(req, socket, head, params) {
 		} catch {}
 		try {
 			stdin.end();
+		} catch {}
+		return;
+	}
+
+	// Client left while exec was connecting — close the late upstream.
+	if (closed) {
+		try {
+			upstream.close();
 		} catch {}
 		return;
 	}
