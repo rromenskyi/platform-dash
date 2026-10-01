@@ -128,7 +128,15 @@ export async function fetchPgStats(
 		// for the underlying reasoning. node-postgres pool.connect() can
 		// stall when all clients are checked out and no connection is
 		// idle, and individual queries have no built-in statement timeout.
-		const client = await withDeadline(pool.connect(), 8_000, `pg [${targetName}] connect`);
+		const client = await withDeadline(
+			pool.connect(),
+			8_000,
+			`pg [${targetName}] connect`,
+			(c) => c.release()
+		);
+		// A timed-out query keeps running on this client — destroy it
+		// rather than hand a busy connection back to the pool.
+		let broken = false;
 		try {
 			const [sizes, conns, maxConns, repl, uptime, ver] = await withDeadline(
 				Promise.all([
@@ -181,8 +189,11 @@ export async function fetchPgStats(
 				},
 				replication
 			};
+		} catch (err) {
+			broken = true;
+			throw err;
 		} finally {
-			client.release();
+			client.release(broken);
 		}
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -249,24 +260,36 @@ export async function fetchPgDbDetail(
 	const start = performance.now();
 	try {
 		const pool = getPoolForDb(targetName, uri, dbName);
-		const client = await pool.connect();
+		const client = await withDeadline(
+			pool.connect(),
+			8_000,
+			`pg [${targetName}/${dbName}] connect`,
+			(c) => c.release()
+		);
+		// A timed-out query keeps running on this client — destroy it
+		// rather than hand a busy connection back to the pool.
+		let broken = false;
 		try {
-			const res = await client.query<{
-				nspname: string;
-				relname: string;
-				relkind: string;
-				bytes: string;
-				rows: string;
-			}>(
-				`SELECT n.nspname, c.relname, c.relkind,
-					pg_total_relation_size(c.oid) AS bytes,
-					COALESCE(c.reltuples, 0)::bigint AS rows
-				FROM pg_class c
-				JOIN pg_namespace n ON n.oid = c.relnamespace
-				WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-				  AND c.relkind IN ('r', 'p', 'm', 'v', 'i')
-				ORDER BY pg_total_relation_size(c.oid) DESC
-				LIMIT 100`
+			const res = await withDeadline(
+				client.query<{
+					nspname: string;
+					relname: string;
+					relkind: string;
+					bytes: string;
+					rows: string;
+				}>(
+					`SELECT n.nspname, c.relname, c.relkind,
+						pg_total_relation_size(c.oid) AS bytes,
+						COALESCE(c.reltuples, 0)::bigint AS rows
+					FROM pg_class c
+					JOIN pg_namespace n ON n.oid = c.relnamespace
+					WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+					  AND c.relkind IN ('r', 'p', 'm', 'v', 'i')
+					ORDER BY pg_total_relation_size(c.oid) DESC
+					LIMIT 100`
+				),
+				8_000,
+				`pg [${targetName}/${dbName}] relations`
 			);
 			const relations = res.rows.map((r) => ({
 				schema: r.nspname,
@@ -284,8 +307,11 @@ export async function fetchPgDbDetail(
 				durationMs: Math.round(performance.now() - start)
 			});
 			return { ok: true, dbName, totalBytes, relations };
+		} catch (err) {
+			broken = true;
+			throw err;
 		} finally {
-			client.release();
+			client.release(broken);
 		}
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -335,7 +361,15 @@ export async function fetchPgSlowQueries(
 	};
 	const start = performance.now();
 	try {
-		const client = await withDeadline(pool.connect(), 8_000, `pg [${targetName}] connect (slow)`);
+		const client = await withDeadline(
+			pool.connect(),
+			8_000,
+			`pg [${targetName}] connect (slow)`,
+			(c) => c.release()
+		);
+		// A timed-out query keeps running on this client — destroy it
+		// rather than hand a busy connection back to the pool.
+		let broken = false;
 		try {
 			// pg_stat_statements ships as an extension (default OFF on
 			// most installs). Surface the missing-extension case as a
@@ -372,8 +406,11 @@ export async function fetchPgSlowQueries(
 					rows: Number(r.rows)
 				}))
 			};
+		} catch (err) {
+			broken = true;
+			throw err;
 		} finally {
-			client.release();
+			client.release(broken);
 		}
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);

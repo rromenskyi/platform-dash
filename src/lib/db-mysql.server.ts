@@ -80,7 +80,15 @@ export async function fetchMysqlStats(
 		// a slot is free, and individual queries inherit the connection's
 		// timeout (default: none) so a wedged server hangs the loader
 		// until Cloudflare returns 524.
-		const conn = await withDeadline(pool.getConnection(), 8_000, `mysql [${targetName}] connect`);
+		const conn = await withDeadline(
+			pool.getConnection(),
+			8_000,
+			`mysql [${targetName}] connect`,
+			(c) => c.release()
+		);
+		// A timed-out query keeps running on this connection — destroy it
+		// rather than hand a busy connection back to the pool.
+		let broken = false;
 		try {
 			// mysql2's single connection is strictly sequential — running
 			// queries through Promise.all() on the same conn throws
@@ -149,8 +157,12 @@ export async function fetchMysqlStats(
 				slowQueries: Number(status.Slow_queries ?? '0'),
 				bufferPoolHitRate: hitRate
 			};
+		} catch (err) {
+			broken = true;
+			throw err;
 		} finally {
-			conn.release();
+			if (broken) conn.destroy();
+			else conn.release();
 		}
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -206,17 +218,29 @@ export async function fetchMysqlDbDetail(
 	};
 	const start = performance.now();
 	try {
-		const conn = await pool.getConnection();
+		const conn = await withDeadline(
+			pool.getConnection(),
+			8_000,
+			`mysql [${targetName}/${dbName}] connect`,
+			(c) => c.release()
+		);
+		// A timed-out query keeps running on this connection — destroy it
+		// rather than hand a busy connection back to the pool.
+		let broken = false;
 		try {
-			const [rows] = await conn.query<mysql.RowDataPacket[]>(
-				`SELECT table_name AS tname, engine,
+			const [rows] = await withDeadline(
+				conn.query<mysql.RowDataPacket[]>(
+					`SELECT table_name AS tname, engine,
 					COALESCE(data_length + index_length, 0) AS bytes,
 					COALESCE(table_rows, 0) AS rcount
 				FROM information_schema.tables
 				WHERE table_schema = ?
 				ORDER BY bytes DESC
 				LIMIT 100`,
-				[dbName]
+					[dbName]
+				),
+				8_000,
+				`mysql [${targetName}/${dbName}] tables`
 			);
 			const tables: MysqlTable[] = rows.map((r) => ({
 				name: String(r.tname),
@@ -231,8 +255,12 @@ export async function fetchMysqlDbDetail(
 				durationMs: Math.round(performance.now() - start)
 			});
 			return { ok: true, dbName, totalBytes, tables };
+		} catch (err) {
+			broken = true;
+			throw err;
 		} finally {
-			conn.release();
+			if (broken) conn.destroy();
+			else conn.release();
 		}
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
