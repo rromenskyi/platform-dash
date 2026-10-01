@@ -1,0 +1,61 @@
+{{- if .Values.rbac.create }}
+{{- $name := printf "%s-%s" .Release.Namespace (include "platform-dash.fullname" .) }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "platform-dash.labels" . | nindent 4 }}
+rules:
+{{- if .Values.rbac.readOnly }}
+  # Read-only extras on top of the built-in "view" role (bound below),
+  # which already covers namespaced workloads but not these.
+  - apiGroups: [""]
+    resources: [nodes, namespaces, persistentvolumes]
+    verbs: [get, list, watch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [nodes, pods]
+    verbs: [get, list]
+{{- else }}
+  # Full access: the dashboard's own role checks (platform_admin etc.)
+  # are the authorization boundary for what operators can do.
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "platform-dash.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "platform-dash.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.rbac.readOnly }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}-view
+  labels:
+    {{- include "platform-dash.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "platform-dash.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

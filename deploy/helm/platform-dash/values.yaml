@@ -1,0 +1,83 @@
+# Public URL the dashboard is served at (scheme + host, no trailing
+# slash). Required — OIDC redirects and cookie scoping derive from it.
+url: ""                     # e.g. https://dash.example.com
+
+image:
+  repository: ghcr.io/rromenskyi/platform-dash
+  tag: ""                   # defaults to .Chart.AppVersion
+  pullPolicy: ""            # defaults to Always for "latest", else IfNotPresent
+
+replicaCount: 1
+
+# OIDC login. Any provider works (Zitadel, Keycloak, Authentik, Dex…).
+# Register a confidential web client with redirect URI
+#   <url>/auth/callback/<providerId>
+auth:
+  issuer: ""                # e.g. https://id.example.com, https://kc.example.com/realms/main
+  clientId: ""
+  clientSecret: ""          # ignored when existingSecret is set
+  providerId: oidc          # callback path segment
+  providerName: SSO         # sign-in button label
+  scope: "openid email profile offline_access"
+  # id_token claim holding the user's roles/groups (dot path allowed).
+  # The dashboard looks for these role names in it:
+  #   platform_admin, platform_sre,
+  #   cluster_<name>_admin|sre, namespace_<ns>_admin|sre
+  # Zitadel: urn:zitadel:iam:org:project:roles  Keycloak realm roles:
+  # realm_access.roles  Keycloak/Authentik/Dex groups: groups
+  rolesClaim: groups
+  # Session cookie encryption key. Empty = generated once and kept
+  # across upgrades. Ignored when existingSecret is set.
+  sessionSecret: ""
+  # Use a pre-created Secret instead. Keys: AUTH_SECRET and
+  # AUTH_OIDC_CLIENT_SECRET.
+  existingSecret: ""
+
+# Optional deeplink to your Grafana from the overview/monitoring pages.
+grafanaUrl: ""
+
+# Server-side HTTP tester target guard: none | metadata | private.
+httpTestBlock: metadata
+
+cloudshell:
+  # Image for the ephemeral kubectl shell pod (needs kubectl + bash).
+  image: ""                 # empty = bitnami/kubectl:latest
+  ttlSeconds: 14400
+
+rbac:
+  create: true
+  # false: full access (scale, restart, delete, edit, pod/cloud shell).
+  # true:  built-in "view" role (no Secrets) + nodes/CRDs/metrics read;
+  #        write actions, Secrets and shells return permission errors.
+  readOnly: false
+
+serviceAccount:
+  create: true
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: ""             # empty = cluster default (Traefik on k3s)
+  annotations: {}
+  tls: []
+  #  - secretName: platform-dash-tls
+
+# Extra environment, e.g. DASH_CLUSTERS_JSON or DASH_DB_TARGETS_JSON.
+extraEnv: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+podSecurityContext: {}
+securityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

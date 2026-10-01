@@ -156,10 +156,12 @@
 		<p>Prometheus + Grafana surface — health rollup, latency, errors.</p>
 	</a>
 
-	<a class="card external" href="https://grafana.ipsupport.us" rel="noopener" target="_blank">
-		<h2>Open Grafana ↗</h2>
-		<p>Direct deeplink to the kube-prometheus-stack Grafana for the platform.</p>
-	</a>
+	{#if data.grafanaUrl}
+		<a class="card external" href={data.grafanaUrl} rel="noopener" target="_blank">
+			<h2>Open Grafana ↗</h2>
+			<p>Dashboards, long-window metrics and alert rules.</p>
+		</a>
+	{/if}
 </section>
 
 <style>

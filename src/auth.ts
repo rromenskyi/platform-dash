@@ -1,6 +1,6 @@
 import { SvelteKitAuth } from '@auth/sveltekit';
-import ZITADEL from '@auth/core/providers/zitadel';
 import { env } from '$env/dynamic/private';
+import { resolveOidc, extractRoles } from '$lib/oidc-config';
 
 // Decode the payload of a JWT (no signature verify — the token came
 // from our IdP via the OAuth code flow that Auth.js already validated).
@@ -19,38 +19,28 @@ function decodeJwtPayload(jwt: string | undefined): Record<string, unknown> | nu
 	}
 }
 
-// Zitadel emits the project-roles claim shaped as
-//   { "<roleKey>": { "<orgId>": "<orgPrimaryDomain>" }, ... }
-// We only need the role keys (e.g. "platform_admin", "platform_sre").
-function extractZitadelRoles(idToken: string | undefined): string[] {
-	const payload = decodeJwtPayload(idToken);
-	if (!payload) return [];
-	const claim = payload['urn:zitadel:iam:org:project:roles'];
-	if (!claim || typeof claim !== 'object') return [];
-	return Object.keys(claim);
-}
-
-// Zitadel provider via Auth.js. Three env vars do the wiring:
-//   AUTH_ZITADEL_ISSUER  — `https://id.<your-domain>` (no trailing slash)
-//   AUTH_ZITADEL_ID      — OIDC client_id from Zitadel Application
-//   AUTH_ZITADEL_SECRET  — OIDC client_secret (or empty for PKCE-only public clients)
+// Generic OIDC provider — see $lib/oidc-config for the env contract.
 // AUTH_SECRET is the cookie-encryption key — generate with `openssl rand -hex 32`.
 //
 // `$env/dynamic/private` resolves at runtime (process.env), so
 // k8s ConfigMap/Secret injection works without a build-time .env.
+const oidc = resolveOidc(env);
+
 // Absolute session lifetime, independent of activity (see jwt()).
 const SESSION_ABSOLUTE_MS = 12 * 60 * 60 * 1000;
 
 export const { handle, signIn, signOut } = SvelteKitAuth({
 	providers: [
-		ZITADEL({
-			clientId: env.AUTH_ZITADEL_ID,
-			clientSecret: env.AUTH_ZITADEL_SECRET,
-			issuer: env.AUTH_ZITADEL_ISSUER,
-			// Pull standard OIDC claims plus offline_access so we get a
-			// refresh token — Auth.js rotates it for us behind the scenes.
-			authorization: { params: { scope: 'openid email profile offline_access' } }
-		})
+		{
+			id: oidc.id,
+			name: oidc.name,
+			type: 'oidc',
+			issuer: oidc.issuer,
+			clientId: oidc.clientId,
+			clientSecret: oidc.clientSecret,
+			// Default scope includes offline_access so we get a refresh token.
+			authorization: { params: { scope: oidc.scope } }
+		}
 	],
 	secret: env.AUTH_SECRET,
 	trustHost: true,
@@ -58,21 +48,20 @@ export const { handle, signIn, signOut } = SvelteKitAuth({
 	session: { maxAge: SESSION_ABSOLUTE_MS / 1000 },
 	callbacks: {
 		// Keep the id_token + access_token on the JWT so server code
-		// can call Zitadel APIs on behalf of the user. Also pull the
-		// project roles claim out of the id_token — Zitadel emits them under
-		// `urn:zitadel:iam:org:project:roles` when the Application has
-		// `id_token_role_assertion = true` (set in the platform repo's
-		// modules/zitadel-app).
+		// can call the IdP on behalf of the user. Roles come from the
+		// id_token claim named by DASH_ROLES_CLAIM (Zitadel: enable
+		// "assert roles on authentication"/id_token_role_assertion;
+		// Keycloak/Authentik: add a groups mapper to the id_token).
 		async jwt({ token, account }) {
 			if (account) {
 				token.accessToken = account.access_token;
 				token.idToken = account.id_token;
-				token.roles = extractZitadelRoles(account.id_token);
+				token.roles = extractRoles(decodeJwtPayload(account.id_token), oidc.rolesClaim);
 				token.authAt = Date.now();
 			}
 			// Roles are read from the id_token only at sign-in, and the JWT
 			// session slides on every request — an active user would keep
-			// a role revoked in Zitadel indefinitely. Force a fresh sign-in
+			// a role revoked in the IdP indefinitely. Force a fresh sign-in
 			// (and fresh roles) after an absolute lifetime. Tokens minted
 			// before authAt existed count as expired.
 			if (!token.authAt || Date.now() - token.authAt > SESSION_ABSOLUTE_MS) {

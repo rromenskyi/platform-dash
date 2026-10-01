@@ -1,0 +1,9 @@
+platform-dash is installed.
+
+  URL:          {{ .Values.url }}
+  OIDC callback {{ .Values.url | trimSuffix "/" }}/auth/callback/{{ .Values.auth.providerId }}
+  Roles claim:  {{ .Values.auth.rolesClaim }}
+  RBAC:         {{ if .Values.rbac.readOnly }}read-only (view + nodes/CRDs/metrics){{ else }}full access{{ end }}
+
+Give users a role named platform_admin (full) or platform_sre (read)
+in your IdP, emitted in the "{{ .Values.auth.rolesClaim }}" id_token claim.

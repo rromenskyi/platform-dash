@@ -17,6 +17,7 @@ import { PassThrough } from 'node:stream';
 import { WebSocketServer } from 'ws';
 import { KubeConfig, Exec, CoreV1Api } from '@kubernetes/client-node';
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -352,7 +353,16 @@ async function handleExecUpgrade(req, socket, head, params) {
 // platform_admin only — the pod runs under the dash service account
 // and thus has the dash's k8s permissions, so giving cluster-scoped
 // roles a cloudshell would silently elevate them.
-const CLOUDSHELL_NAMESPACE = process.env.CLOUDSHELL_NAMESPACE ?? 'platform';
+// Defaults to the dash's own namespace (in-pod SA file), so the
+// cloudshell works wherever the chart installs it.
+function ownNamespace() {
+	try {
+		return readFileSync('/var/run/secrets/kubernetes.io/serviceaccount/namespace', 'utf8').trim();
+	} catch {
+		return process.env.POD_NAMESPACE || 'platform';
+	}
+}
+const CLOUDSHELL_NAMESPACE = process.env.CLOUDSHELL_NAMESPACE ?? ownNamespace();
 const CLOUDSHELL_IMAGE = process.env.CLOUDSHELL_IMAGE ?? 'bitnami/kubectl:latest';
 const CLOUDSHELL_SA = process.env.CLOUDSHELL_SERVICE_ACCOUNT ?? 'platform-dash';
 const CLOUDSHELL_TTL_SECONDS = Number(process.env.CLOUDSHELL_TTL_SECONDS ?? 4 * 60 * 60);

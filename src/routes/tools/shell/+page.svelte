@@ -221,8 +221,8 @@
 </div>
 
 <p class="muted small">
-	Spins up an ephemeral pod (image: <code>bitnami/kubectl</code>) in the
-	<code>platform</code> namespace under the dash service account, exec's into it,
+	Spins up an ephemeral kubectl pod in the dashboard's namespace under its service
+	account, exec's into it,
 	and deletes it when the WS closes. Sessions are audited as <code>cloudshell-open/close</code>;
 	keystrokes are not logged.
 	{#if podName}<br /><span class="ok">pod: <code>{podName}</code></span>{/if}

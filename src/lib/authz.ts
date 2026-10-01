@@ -2,7 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import type { Session } from '@auth/core/types';
 
 // Project-role keys as defined in the Zitadel Application
-// (~/platform/modules/zitadel-app, role_keys: platform_admin /
+// (platform repo, modules/zitadel-app; role_keys: platform_admin /
 // platform_sre / user). Anyone outside admin+sre is bounced from the
 // dashboard surfaces.
 //

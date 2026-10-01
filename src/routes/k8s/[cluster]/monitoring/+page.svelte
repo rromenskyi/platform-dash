@@ -12,10 +12,13 @@
 
 <section class="card">
 	<h3>Grafana</h3>
-	<p>kube-prometheus-stack on the platform.</p>
-	<p>
-		<a class="link" href={data.grafanaUrl} rel="noopener" target="_blank">{data.grafanaUrl} ↗</a>
-	</p>
+	{#if data.grafanaUrl}
+		<p>
+			<a class="link" href={data.grafanaUrl} rel="noopener" target="_blank">{data.grafanaUrl} ↗</a>
+		</p>
+	{:else}
+		<p class="muted">No Grafana linked. Set <code>DASH_GRAFANA_URL</code> to show a deeplink here.</p>
+	{/if}
 </section>
 
 <p class="muted small footnote">

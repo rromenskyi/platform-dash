@@ -11,9 +11,9 @@ export const load: PageServerLoad = async (event) => {
 	const cluster = event.params.cluster;
 	if (!canRead(session, cluster)) throw redirect(303, '/');
 
+	// grafanaUrl comes from the root layout (DASH_GRAFANA_URL).
 	return {
 		session,
-		cluster,
-		grafanaUrl: 'https://grafana.ipsupport.us'
+		cluster
 	};
 };

@@ -30,6 +30,39 @@ jobs:
 
       - run: npm test
 
+  # Helm chart: lint, render both RBAC modes, validate against the k8s
+  # schemas. Runs on PRs too — the chart is what other clusters install.
+  chart:
+    runs-on: pd-runners
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v5
+
+      - name: Lint
+        run: |
+          helm lint deploy/helm/platform-dash \
+            --set url=https://dash.example.com \
+            --set auth.issuer=https://id.example.com \
+            --set auth.clientId=dash
+
+      - name: Render + validate schemas
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          for ro in false true; do
+            echo "::group::rbac.readOnly=$ro"
+            helm template dash deploy/helm/platform-dash \
+              --set url=https://dash.example.com \
+              --set auth.issuer=https://id.example.com \
+              --set auth.clientId=dash \
+              --set grafanaUrl=https://grafana.example.com \
+              --set 'ingress.tls[0].secretName=dash-tls' \
+              --set rbac.readOnly=$ro \
+              | tee rendered.yaml | ./kubeconform -strict -summary
+            cat rendered.yaml
+            echo "::endgroup::"
+          done
+
   build:
     needs: test
     # Skip image publish on PRs — only push to main + tags + manual go to GHCR.
