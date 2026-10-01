@@ -3,6 +3,9 @@
 	import { signIn } from '@auth/sveltekit/client';
 
 	let session = $derived(page.data.session);
+	let provider = $derived(
+		(page.data.authProvider as { id: string; name: string } | undefined) ?? { id: 'oidc', name: 'SSO' }
+	);
 </script>
 
 {#if session?.user}
@@ -14,8 +17,8 @@
 		<div class="panel">
 			<h1 class="mark">platform</h1>
 			<p class="lede">Operator console for the k3s platform.</p>
-			<button class="signin" onclick={() => signIn('zitadel')}>Sign in with Zitadel</button>
-			<p class="note">Access follows your platform role in Zitadel.</p>
+			<button class="signin" onclick={() => signIn(provider.id)}>Sign in with {provider.name}</button>
+			<p class="note">Access follows your platform role in {provider.name}.</p>
 		</div>
 	</section>
 {/if}

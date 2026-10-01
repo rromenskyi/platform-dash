@@ -7,6 +7,8 @@ import { kickFresh as kickDbTargetsFresh } from '$lib/db-targets.server';
 import { snapshot as k8sMetricsSnapshot } from '$lib/k8s-metrics.server';
 import { incidentSummary } from '$lib/incident-summary.server';
 import { BUILD_SHA, BUILD_SHA_SHORT, BUILD_TIME, COMMIT_URL } from '$lib/build-info';
+import { env } from '$env/dynamic/private';
+import { resolveOidc } from '$lib/oidc-config';
 
 // Surface the Auth.js session on every page via $page.data.session.
 // Keeping this in a layout (not per-page) means the topbar can show
@@ -58,8 +60,11 @@ export const load: LayoutServerLoad = async (event) => {
 	// background refresh when expired. Layout never blocks on a
 	// k8s call here, even if the apiserver is slow / unreachable.
 	const stuck = reader ? incidentSummary((c) => canRead(session, c)) : null;
+	const oidc = resolveOidc(env);
 	return {
 		session,
+		// Sign-in button target + label (provider-agnostic OIDC).
+		authProvider: { id: oidc.id, name: oidc.name },
 		// Build identity only for signed-in users — it's a version
 		// fingerprint, and inlining it client-side shipped it to anyone.
 		build: session?.user
