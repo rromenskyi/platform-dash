@@ -3,6 +3,8 @@ import type { RequestHandler } from './$types';
 import { canWrite } from '$lib/authz';
 import { record } from '$lib/audit.server';
 import { readJson } from '$lib/csrf.server';
+import { env } from '$env/dynamic/private';
+import { blockModeFrom, checkTarget } from '$lib/http-target.server';
 
 // Server-side HTTP tester. Fetches arbitrary URLs (http/https only)
 // from inside the dash pod with operator-supplied method, headers,
@@ -49,6 +51,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!ALLOWED_METHODS.has(method)) {
 		throw error(400, `unsupported method: ${method}`);
 	}
+	// SSRF guard — see http-target.server.ts for the modes.
+	const blocked = await checkTarget(parsed, blockModeFrom(env.DASH_HTTP_TEST_BLOCK));
+	if (blocked) throw error(403, blocked);
 
 	// Only allow body on methods that take one. Don't infer
 	// content-type — operator sets it in the headers map if they want
