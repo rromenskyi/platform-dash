@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
-	import { signIn, signOut } from '@auth/sveltekit/client';
+	import { signOut } from '@auth/sveltekit/client';
 	import { page, updated } from '$app/state';
 	import { beforeNavigate } from '$app/navigation';
 	import type { SerializableNode } from '$lib/resource';
@@ -11,7 +11,6 @@
 	import Shortcuts from '$lib/Shortcuts.svelte';
 	import QuickSearch from '$lib/QuickSearch.svelte';
 	import { closeAll as closeAllLive } from '$lib/live-registry.svelte';
-	import { BUILD_SHA, BUILD_SHA_SHORT, BUILD_TIME, COMMIT_URL } from '$lib/build-info';
 
 	// Drop every active Live SSE before any client-side navigation, and
 	// force a hard reload if a redeploy was detected (kit.version
@@ -171,13 +170,16 @@
 		>{mobileSidebar ? '×' : '☰'}</button>
 	{/if}
 	<a class="brand" href="/">platform</a>
-	<a
-		class="build"
-		href={COMMIT_URL}
-		target="_blank"
-		rel="noopener"
-		title={`Build ${BUILD_SHA} — ${BUILD_TIME}`}
-	>{BUILD_SHA_SHORT}</a>
+	{#if page.data.build}
+		{@const b = page.data.build as { sha: string; short: string; time: string; url: string }}
+		<a
+			class="build"
+			href={b.url}
+			target="_blank"
+			rel="noopener"
+			title={`Build ${b.sha} — ${b.time}`}
+		>{b.short}</a>
+	{/if}
 	<nav class="topnav">
 		{#if session?.user && canRead}
 			{#if page.data.apiHealth}
@@ -223,8 +225,10 @@
 			title="Toggle light / dark theme"
 			aria-label="Toggle theme"
 		>{theme === 'dark' ? '☾' : '☀'}</button>
-		<a href="/profile" class:active={pathname === '/profile' || pathname.startsWith('/profile/')}>Profile</a>
-		<a href="/settings" class:active={pathname === '/settings' || pathname.startsWith('/settings/')}>Settings</a>
+		{#if session?.user}
+			<a href="/profile" class:active={pathname === '/profile' || pathname.startsWith('/profile/')}>Profile</a>
+			<a href="/settings" class:active={pathname === '/settings' || pathname.startsWith('/settings/')}>Settings</a>
+		{/if}
 		{#if session?.user && canRead}
 			<SavedViews />
 		{/if}
@@ -236,8 +240,6 @@
 			{/if}
 			<span class="muted">{session.user.email ?? session.user.name}</span>
 			<button class="ghost" onclick={() => signOut()}>Sign out</button>
-		{:else}
-			<button onclick={() => signIn('zitadel')}>Sign in</button>
 		{/if}
 	</nav>
 </header>
