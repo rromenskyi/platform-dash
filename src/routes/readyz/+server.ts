@@ -9,15 +9,15 @@ import { time } from '$lib/k8s-metrics.server';
 // "?cluster=name" override lets the probe target a single cluster
 // (typically the local in-cluster one for the platform's own probe).
 // Without the override, we probe the default cluster — usually "local"
-// for single-cluster deployments. Failures surface in the response
-// body so an operator running curl gets the underlying reason.
+// for single-cluster deployments. The endpoint is unauthenticated, so
+// the body is a bare "not ready" (identical for unknown and failing
+// clusters — no cluster-name enumeration); the reason goes to the
+// server log instead.
 export const GET: RequestHandler = async ({ url }) => {
 	const target = url.searchParams.get('cluster') || defaultCluster();
 	if (!listClusters().includes(target)) {
-		return new Response(`not ready: unknown cluster "${target}"\n`, {
-			status: 503,
-			headers: { 'content-type': 'text/plain' }
-		});
+		console.error(`readyz: unknown cluster "${target}"`);
+		return notReady();
 	}
 	try {
 		await time(`${target}/readyz/listNamespace`, () =>
@@ -26,9 +26,11 @@ export const GET: RequestHandler = async ({ url }) => {
 		return new Response('ready\n', { status: 200, headers: { 'content-type': 'text/plain' } });
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		return new Response(`not ready (${target}): ${msg}\n`, {
-			status: 503,
-			headers: { 'content-type': 'text/plain' }
-		});
+		console.error(`readyz: ${target} not ready: ${msg}`);
+		return notReady();
 	}
 };
+
+function notReady(): Response {
+	return new Response('not ready\n', { status: 503, headers: { 'content-type': 'text/plain' } });
+}
