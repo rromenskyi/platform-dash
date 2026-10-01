@@ -293,5 +293,7 @@
 	.top-card td.mono a { color: var(--fg); }
 	.top-card td.mono a:hover { color: var(--accent); }
 	.small { font-size: 0.85rem; }
-	.hint { color: var(--muted); margin: 0.5rem 0 1.5rem; }
+	/* Paragraph hint below the tables — scoped to <p> so it doesn't also
+	   pad the .stat card hints (which made every card ~35px too tall). */
+	p.hint { color: var(--muted); margin: 0.5rem 0 1.5rem; }
 </style>

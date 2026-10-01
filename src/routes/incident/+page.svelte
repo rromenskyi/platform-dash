@@ -332,7 +332,7 @@
 			<h3>Warning events <span class="muted small">(top {r.warningEvents.length})</span></h3>
 			<table>
 				<thead>
-					<tr><th>Namespace</th><th>InvolvedObject</th><th>Reason</th><th>Message</th><th class="num">Count</th><th>Last seen</th></tr>
+					<tr><th>Namespace</th><th>Object</th><th>Reason</th><th>Message</th><th class="num">Count</th><th class="nowrap">Last seen</th></tr>
 				</thead>
 				<tbody>
 					{#each r.warningEvents as e}
@@ -481,4 +481,5 @@
 	.bulk-act.danger:hover:not(:disabled) { color: #fb7185; border-color: #fb7185; }
 	.bulk-act:disabled { cursor: not-allowed; opacity: 0.5; }
 	.bulk-hint { margin-left: 0.5rem; }
+	th.nowrap { white-space: nowrap; }
 </style>

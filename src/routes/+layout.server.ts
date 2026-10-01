@@ -6,6 +6,7 @@ import { buildAllTrees } from '$lib/resource-tree-k8s.server';
 import { kickFresh as kickDbTargetsFresh } from '$lib/db-targets.server';
 import { snapshot as k8sMetricsSnapshot } from '$lib/k8s-metrics.server';
 import { incidentSummary } from '$lib/incident-summary.server';
+import { BUILD_SHA, BUILD_SHA_SHORT, BUILD_TIME, COMMIT_URL } from '$lib/build-info';
 
 // Surface the Auth.js session on every page via $page.data.session.
 // Keeping this in a layout (not per-page) means the topbar can show
@@ -59,6 +60,11 @@ export const load: LayoutServerLoad = async (event) => {
 	const stuck = reader ? incidentSummary((c) => canRead(session, c)) : null;
 	return {
 		session,
+		// Build identity only for signed-in users — it's a version
+		// fingerprint, and inlining it client-side shipped it to anyone.
+		build: session?.user
+			? { sha: BUILD_SHA, short: BUILD_SHA_SHORT, time: BUILD_TIME, url: COMMIT_URL }
+			: null,
 		canRead: reader,
 		canWrite: canWrite(session),
 		defaultCluster: defaultCluster(),
