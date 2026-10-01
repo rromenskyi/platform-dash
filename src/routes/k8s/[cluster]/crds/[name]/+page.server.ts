@@ -1,8 +1,8 @@
-import { error, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { apiextensions, customObjects } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
-import { canRead, accessibleNamespaces } from '$lib/authz';
+import { requireRead, canRead, accessibleNamespaces } from '$lib/authz';
 
 export type CrdVersionInfo = {
 	name: string;
@@ -26,9 +26,9 @@ function pickServingVersion(versions: CrdVersionInfo[]): string | null {
 
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
-	if (!session?.user) {
-		throw redirect(303, '/');
-	}
+	// Same entry gate as the cluster layout — page loads can run
+	// without the layouts (__data.json), so check here too.
+	requireRead(session, event.params.cluster, undefined, { forCluster: true });
 
 	const { name, cluster } = event.params;
 
