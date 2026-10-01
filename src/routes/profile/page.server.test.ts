@@ -15,7 +15,8 @@ async function event(protocol: 'http:' | 'https:') {
 		salt: name
 	});
 	return {
-		url: new URL(`${protocol}//dash.example/profile`),
+		// Always http here: the cookie scheme must not depend on it.
+		url: new URL('http://dash.example/profile'),
 		request: new Request(`${protocol}//dash.example/profile`, {
 			headers: { cookie: `${name}=${jwt}` }
 		}),

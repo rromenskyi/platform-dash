@@ -13,11 +13,13 @@ export const load: PageServerLoad = async (event) => {
 	if (!session?.user) {
 		throw redirect(303, '/');
 	}
-	const token = await getToken({
-		req: event.request,
-		secret: env.AUTH_SECRET,
-		secureCookie: event.url.protocol === 'https:'
-	});
+	// Auth.js picks the cookie name from AUTH_URL / x-forwarded-proto and
+	// defaults to the __Secure- variant, which needn't match event.url's
+	// scheme behind the tunnel — try the secure name first, then plain.
+	const opts = { req: event.request, secret: env.AUTH_SECRET };
+	const token =
+		(await getToken({ ...opts, secureCookie: true })) ??
+		(await getToken({ ...opts, secureCookie: false }));
 	return {
 		session,
 		idToken: token?.idToken,
