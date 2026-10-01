@@ -173,6 +173,18 @@
 					<span class="bar-num">{fmtBytes(n.usage.actualMemoryBytes ?? 0)} / {fmtBytes(memAlloc)} ({actualMemPct}%)</span>
 				</div>
 			{/if}
+			<!-- Disk: kubelet nodefs (what DiskPressure evicts on — kubelet's
+			     default threshold is <10% free, hence red at 90%). -->
+			{#each [{ label: 'Disk', fs: n.usage.disk }, { label: 'Image disk', fs: n.usage.imageDisk }] as d}
+				{#if d.fs}
+					{@const p = pct(d.fs.usedBytes, d.fs.capacityBytes)}
+					<div class="bar-row">
+						<span class="bar-label live">{d.label}</span>
+						<div class="bar"><div class="fill fill-{p >= 90 ? 'bad' : p >= 80 ? 'warn' : 'ok'}" style="width: {p}%"></div></div>
+						<span class="bar-num">{fmtBytes(d.fs.usedBytes)} / {fmtBytes(d.fs.capacityBytes)} ({p}%)</span>
+					</div>
+				{/if}
+			{/each}
 			<div class="bar-row">
 				<span class="bar-label">Pods</span>
 				<div class="bar"><div class="fill fill-{pct(n.usage.podsScheduled, parseInt(n.allocatable.pods, 10) || 0) >= 85 ? 'bad' : 'ok'}" style="width: {pct(n.usage.podsScheduled, parseInt(n.allocatable.pods, 10) || 0)}%"></div></div>

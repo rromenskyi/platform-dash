@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
+import { withDeadline } from '$lib';
 import { requireRead, accessibleNamespaces } from '$lib/authz';
 
 export type NodePod = {
@@ -39,6 +40,12 @@ export type NodeRow = {
 		// cluster doesn't have metrics-server installed.
 		actualCpuMilli?: number;
 		actualMemoryBytes?: number;
+		// Kubelet Summary API filesystem stats. nodefs is the kubelet
+		// root fs (what DiskPressure evicts on); imagefs is only set
+		// when container images live on a separate filesystem.
+		// Undefined when the kubelet didn't answer in time.
+		disk?: { usedBytes: number; capacityBytes: number };
+		imageDisk?: { usedBytes: number; capacityBytes: number };
 	};
 	taints: Array<{ key: string; value?: string; effect: string }>;
 	labels: Record<string, string>;
@@ -98,6 +105,50 @@ function rolesFromLabels(labels: Record<string, string>): string[] {
 	return roles.length ? roles : ['<none>'];
 }
 
+type FsStats = { usedBytes?: number; capacityBytes?: number };
+type DiskStats = Pick<NodeRow['usage'], 'disk' | 'imageDisk'>;
+
+function fs(f: FsStats | undefined): { usedBytes: number; capacityBytes: number } | undefined {
+	return f?.usedBytes != null && f.capacityBytes
+		? { usedBytes: f.usedBytes, capacityBytes: f.capacityBytes }
+		: undefined;
+}
+
+// Disk usage isn't in metrics-server, so ask each kubelet's Summary API
+// through the apiserver node proxy. One call per node, in parallel and
+// bounded: a slow or unreachable kubelet just drops its disk bar
+// instead of holding the whole page.
+async function fetchDiskStats(
+	cluster: string,
+	nodes: string[]
+): Promise<Map<string, DiskStats>> {
+	const out = new Map<string, DiskStats>();
+	await Promise.all(
+		nodes.map(async (name) => {
+			try {
+				const raw: unknown = await withDeadline(
+					time(`${cluster}/nodeStatsSummary`, () =>
+						core(cluster).connectGetNodeProxyWithPath({ name, path: 'stats/summary' })
+					),
+					4_000,
+					`${cluster}/${name} stats/summary`
+				);
+				const j = (typeof raw === 'string' ? JSON.parse(raw) : raw) as {
+					node?: { fs?: FsStats; runtime?: { imageFs?: FsStats } };
+				};
+				const disk = fs(j.node?.fs);
+				const image = fs(j.node?.runtime?.imageFs);
+				// Same capacity ⇒ same filesystem; don't draw it twice.
+				const separate = image && disk && image.capacityBytes !== disk.capacityBytes;
+				out.set(name, { disk, imageDisk: separate ? image : undefined });
+			} catch {
+				/* no disk bar for this node */
+			}
+		})
+	);
+	return out;
+}
+
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
 	if (!session?.user) {
@@ -134,6 +185,11 @@ export const load: PageServerLoad = async (event) => {
 				() => null
 			)
 		]);
+
+		const diskByNode = await fetchDiskStats(
+			cluster,
+			nodesRes.items.map((n) => n.metadata?.name ?? '').filter(Boolean)
+		);
 
 		const usageByNode = new Map<string, { cpuMilli: number; memBytes: number }>();
 		if (nodeMetricsRes && nodeMetricsRes.items) {
@@ -252,7 +308,8 @@ export const load: PageServerLoad = async (event) => {
 					memoryRequestsBytes: memBytes,
 					podsScheduled: onNode.length,
 					actualCpuMilli: usageByNode.get(n.metadata?.name ?? '')?.cpuMilli,
-					actualMemoryBytes: usageByNode.get(n.metadata?.name ?? '')?.memBytes
+					actualMemoryBytes: usageByNode.get(n.metadata?.name ?? '')?.memBytes,
+					...diskByNode.get(n.metadata?.name ?? '')
 				},
 				taints: (n.spec?.taints ?? []).map((t) => ({
 					key: t.key,

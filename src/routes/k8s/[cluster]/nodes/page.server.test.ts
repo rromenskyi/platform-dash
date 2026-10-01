@@ -2,12 +2,26 @@
 import { describe, it, expect, vi } from 'vitest';
 
 const listNamespacedPod = vi.fn(async () => ({ items: [] }));
+const node = (name: string) => ({ metadata: { name }, status: {}, spec: {} });
+const summaries: Record<string, unknown> = {
+	a: JSON.stringify({
+		node: {
+			fs: { usedBytes: 60, capacityBytes: 100 },
+			runtime: { imageFs: { usedBytes: 30, capacityBytes: 100 } }
+		}
+	}),
+	b: { node: { fs: { usedBytes: 9, capacityBytes: 10 }, runtime: { imageFs: { usedBytes: 1, capacityBytes: 50 } } } }
+};
 
 vi.mock('$lib/k8s.server', () => ({
 	core: () => ({
-		listNode: async () => ({ items: [] }),
+		listNode: async () => ({ items: [node('a'), node('b'), node('c')] }),
 		listNamespacedPod,
-		listPodForAllNamespaces: async () => ({ items: [] })
+		listPodForAllNamespaces: async () => ({ items: [] }),
+		connectGetNodeProxyWithPath: async ({ name }: { name: string }) => {
+			if (!(name in summaries)) throw new Error('kubelet unreachable');
+			return summaries[name];
+		}
 	}),
 	metrics: () => ({ getNodeMetrics: async () => null })
 }));
@@ -35,5 +49,18 @@ describe('nodes loader authz', () => {
 
 	it('allows cluster-wide readers', async () => {
 		await expect(load(event(['cluster_local_sre'], 'ns=team-b'))).resolves.toBeTruthy();
+	});
+});
+
+describe('nodes loader disk usage', () => {
+	it('reads kubelet fs stats, skipping a shared imagefs and unreachable kubelets', async () => {
+		const data = (await load(event(['platform_sre'], ''))) as {
+			rows: Array<{ name: string; usage: { disk?: unknown; imageDisk?: unknown } }>;
+		};
+		const by = Object.fromEntries(data.rows.map((r) => [r.name, r.usage]));
+		expect(by.a.disk).toEqual({ usedBytes: 60, capacityBytes: 100 });
+		expect(by.a.imageDisk).toBeUndefined(); // same capacity ⇒ same fs
+		expect(by.b.imageDisk).toEqual({ usedBytes: 1, capacityBytes: 50 });
+		expect(by.c.disk).toBeUndefined(); // kubelet down ⇒ no bar, page still loads
 	});
 });
