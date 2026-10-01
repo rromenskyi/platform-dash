@@ -606,7 +606,6 @@ server.on('upgrade', (req, socket, head) => {
 		socket.destroy();
 		return;
 	}
-	const u = new URL(req.url, 'http://localhost');
 	// `handle*Upgrade` is async; the upgrade event listener can't await
 	// it, so an unhandled rejection inside would otherwise hit the
 	// process-wide `unhandledRejection` and crash node 22 in strict
@@ -617,25 +616,33 @@ server.on('upgrade', (req, socket, head) => {
 			socket.destroy();
 		} catch {}
 	};
-	const exec = /^\/ws\/exec\/([^/]+)\/([^/]+)\/([^/?#]+)$/.exec(u.pathname);
-	if (exec) {
-		handleExecUpgrade(req, socket, head, {
-			cluster: decodeURIComponent(exec[1]),
-			ns: decodeURIComponent(exec[2]),
-			pod: decodeURIComponent(exec[3]),
-			container: u.searchParams.get('container') ?? undefined,
-			shell: u.searchParams.get('shell') ?? undefined
-		}).catch((err) => onFail(err, 'handleExecUpgrade'));
-		return;
+	// URL parsing + decodeURIComponent throw synchronously (`/ws/cloudshell/%`
+	// → URIError) — outside the .catch() below, that would be an uncaught
+	// exception that kills the process, pre-auth.
+	try {
+		const u = new URL(req.url, 'http://localhost');
+		const exec = /^\/ws\/exec\/([^/]+)\/([^/]+)\/([^/?#]+)$/.exec(u.pathname);
+		if (exec) {
+			handleExecUpgrade(req, socket, head, {
+				cluster: decodeURIComponent(exec[1]),
+				ns: decodeURIComponent(exec[2]),
+				pod: decodeURIComponent(exec[3]),
+				container: u.searchParams.get('container') ?? undefined,
+				shell: u.searchParams.get('shell') ?? undefined
+			}).catch((err) => onFail(err, 'handleExecUpgrade'));
+			return;
+		}
+		const cloud = /^\/ws\/cloudshell\/([^/?#]+)$/.exec(u.pathname);
+		if (cloud) {
+			handleCloudshellUpgrade(req, socket, head, {
+				cluster: decodeURIComponent(cloud[1])
+			}).catch((err) => onFail(err, 'handleCloudshellUpgrade'));
+			return;
+		}
+		socket.destroy();
+	} catch (err) {
+		onFail(err, 'upgrade dispatch');
 	}
-	const cloud = /^\/ws\/cloudshell\/([^/?#]+)$/.exec(u.pathname);
-	if (cloud) {
-		handleCloudshellUpgrade(req, socket, head, {
-			cluster: decodeURIComponent(cloud[1])
-		}).catch((err) => onFail(err, 'handleCloudshellUpgrade'));
-		return;
-	}
-	socket.destroy();
 });
 
 server.listen(port, () => {
