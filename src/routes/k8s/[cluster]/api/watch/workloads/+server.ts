@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { watcher } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
-import { canRead, accessibleNamespaces } from '$lib/authz';
+import { canRead, accessibleNamespaces, hasAnyNamespaceRole } from '$lib/authz';
 import { isNamespaceName } from '$lib/k8s-names';
 
 // SSE feed of pod / deployment / statefulset events. We open three
@@ -129,9 +129,12 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	const ns = url.searchParams.get('ns') || '';
 	// `ns` is interpolated into the raw watch paths below.
 	if (ns && !isNamespaceName(ns)) throw error(400, 'invalid namespace');
-	// Node names are cluster-scoped: stripped for namespace-scoped users.
-	const clusterWide = accessibleNamespaces(session, cluster) === 'all';
-	if (!canRead(session, cluster, ns || undefined)) {
+	// Namespace-scoped users may stream without ?ns=: the watch is then
+	// cluster-wide but items outside their namespaces are dropped
+	// server-side, and node names are stripped.
+	const accessible = accessibleNamespaces(session, cluster);
+	const clusterWide = accessible === 'all';
+	if (!canRead(session, cluster, ns || undefined) && !(!ns && hasAnyNamespaceRole(session))) {
 		throw error(403, 'read role required (cluster-wide or matching ?ns=)');
 	}
 	const w = watcher(cluster);
@@ -193,7 +196,10 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 						(type, obj) => {
 							if (type === 'BOOKMARK') return;
 							const item = rowFn(obj as ItemMin);
-							if (!clusterWide) item.node = undefined;
+							if (!clusterWide) {
+								if (!accessible.includes(item.namespace)) return;
+								item.node = undefined;
+							}
 							emit({ kind: item.kind, type, item });
 						},
 						(err) => {

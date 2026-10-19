@@ -69,16 +69,11 @@ export const load: PageServerLoad = async (event) => {
 		throw error(409, `CRD "${name}" has no served version`);
 	}
 
-	// The layout only gates entry to the cluster surface. Namespaced
-	// instances need read on that namespace; cluster-scoped ones need a
-	// cluster-wide read role (ns-only operators are denied, matching the
-	// list page's hideClusterScopedInstances).
-	if (scope === 'Namespaced') {
-		if (!ns) throw error(400, 'missing namespace (?ns=) for a namespaced CRD');
-		requireRead(session, cluster, ns);
-	} else {
-		requireRead(session, cluster);
-	}
+	// CRD pages are cluster-wide-read only (authz.ts: definitions are
+	// cluster-scoped); instances follow the same rule — the response
+	// carries the definition's group/kind/version too.
+	requireRead(session, cluster);
+	if (scope === 'Namespaced' && !ns) throw error(400, 'missing namespace (?ns=) for a namespaced CRD');
 
 	let object: unknown = null;
 	let fetchError: string | null = null;

@@ -29,20 +29,44 @@
 
 type ContainerLike = {
 	ready?: boolean;
-	state?: { waiting?: { reason?: string } };
+	state?: { waiting?: { reason?: string }; terminated?: { exitCode?: number } };
 };
 
 type PodLike = {
 	status?: {
 		phase?: string;
 		containerStatuses?: ContainerLike[];
+		initContainerStatuses?: ContainerLike[];
 	};
 };
+
+// Init containers stuck in these states never let the pod start
+// (shown by kubectl as Init:CrashLoopBackOff, Init:ErrImagePull, …).
+const INIT_STUCK = new Set([
+	'CrashLoopBackOff',
+	'ImagePullBackOff',
+	'ErrImagePull',
+	'InvalidImageName',
+	'CreateContainerConfigError',
+	'CreateContainerError',
+	'RunContainerError'
+]);
 
 export function isPodFailing(p: PodLike): boolean {
 	const phase = p.status?.phase ?? '?';
 	if (phase === 'Succeeded') return false;
 	if (phase === 'Failed' || phase === 'Unknown') return true;
+
+	const inits = p.status?.initContainerStatuses ?? [];
+	if (
+		phase === 'Pending' &&
+		inits.some(
+			(c) =>
+				INIT_STUCK.has(c.state?.waiting?.reason ?? '') ||
+				(c.state?.terminated?.exitCode ?? 0) !== 0
+		)
+	)
+		return true;
 
 	const containers = p.status?.containerStatuses ?? [];
 	const waiting = containers.find((c) => c.state?.waiting)?.state?.waiting?.reason;

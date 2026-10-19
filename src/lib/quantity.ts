@@ -1,34 +1,44 @@
 // Kubernetes resource quantities → numbers. CPU in millicores (usage
 // from metrics-server comes as nanocores, "139403626n"), memory in bytes.
 
-export function parseCpuMilli(v: string | undefined): number {
+// Kubernetes quantity grammar: a decimal (optionally with exponent)
+// and an optional suffix — binary (Ki…Ei), decimal (n u m k M G T P E).
+// Unknown or malformed input yields 0 rather than a wrong number.
+const SUFFIX: Record<string, number> = {
+	n: 1e-9,
+	u: 1e-6,
+	µ: 1e-6,
+	m: 1e-3,
+	'': 1,
+	k: 1e3,
+	M: 1e6,
+	G: 1e9,
+	T: 1e12,
+	P: 1e15,
+	E: 1e18,
+	Ki: 2 ** 10,
+	Mi: 2 ** 20,
+	Gi: 2 ** 30,
+	Ti: 2 ** 40,
+	Pi: 2 ** 50,
+	Ei: 2 ** 60
+};
+const QUANTITY = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(Ki|Mi|Gi|Ti|Pi|Ei|n|u|µ|m|k|M|G|T|P|E)?$/;
+
+export function parseQuantity(v: string | undefined): number {
 	if (!v) return 0;
-	if (v.endsWith('n')) return parseFloat(v) / 1_000_000;
-	if (v.endsWith('u') || v.endsWith('µ')) return parseFloat(v) / 1_000;
-	if (v.endsWith('m')) return parseFloat(v);
-	const n = parseFloat(v);
-	return Number.isFinite(n) ? n * 1000 : 0;
+	const m = QUANTITY.exec(v.trim());
+	if (!m) return 0;
+	const n = parseFloat(m[1]) * SUFFIX[m[2] ?? ''];
+	return Number.isFinite(n) ? n : 0;
 }
 
-const MEM_UNITS: Record<string, number> = {
-	Ki: 1024,
-	Mi: 1024 ** 2,
-	Gi: 1024 ** 3,
-	Ti: 1024 ** 4,
-	k: 1000,
-	K: 1000,
-	M: 1000 ** 2,
-	G: 1000 ** 3,
-	T: 1000 ** 4
-};
+export function parseCpuMilli(v: string | undefined): number {
+	return parseQuantity(v) * 1000;
+}
 
 export function parseMemBytes(v: string | undefined): number {
-	if (!v) return 0;
-	const m = /^([\d.]+(?:e\d+)?)([a-zA-Z]*)$/.exec(v);
-	if (!m) return 0;
-	const num = parseFloat(m[1]);
-	if (!Number.isFinite(num)) return 0;
-	return num * (m[2] ? (MEM_UNITS[m[2]] ?? 1) : 1);
+	return parseQuantity(v);
 }
 
 export function fmtCpu(milli: number): string {

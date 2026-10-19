@@ -31,8 +31,9 @@
 </p>
 
 {#if data.error}
-	<p class="err">Could not load pods: {data.error}</p>
-{:else if data.namespaces.length === 0}
+	<p class="err">Some data could not be loaded — {data.error}</p>
+{/if}
+{#if data.namespaces.length === 0}
 	<p class="muted">No pods in the namespaces you can see.</p>
 {:else}
 	<table>
@@ -56,7 +57,10 @@
 					<td class="num" class:warnt={n.restarts > 0}>{n.restarts}</td>
 					<td class="num" class:badt={n.oom24h > 0}>{n.oom24h}</td>
 					<td>{@render meter(n.cpuUsedMilli, n.cpuRequestMilli, n.cpuLimitMilli, fmtCpu)}</td>
-					<td>{@render meter(n.memUsedBytes, n.memRequestBytes, n.memLimitBytes, fmtBytes)}</td>
+					<td>
+						{@render meter(n.memUsedBytes, n.memRequestBytes, n.memLimitBytes, fmtBytes)}
+						{#if n.metricsPartial}<span class="badge" title="Some running pods have no metrics sample yet; usage is a lower bound">partial</span>{/if}
+					</td>
 				</tr>
 			{/each}
 		</tbody>

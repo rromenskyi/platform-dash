@@ -229,7 +229,7 @@
 				<span class="badge bad">unreachable</span>
 			{:else}
 				<span class="muted small">
-					{r.totals.pods} pods{#if data.nodesVisible} · {r.totals.nodes} nodes{/if} · {r.totals.events} events
+					{r.totals.pods} pods{#if r.nodesVisible} · {r.totals.nodes} nodes{/if} · {r.totals.events} events
 				</span>
 			{/if}
 		</header>

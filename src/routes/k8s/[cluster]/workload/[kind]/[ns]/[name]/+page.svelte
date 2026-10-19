@@ -209,7 +209,7 @@
 					<th>Phase</th>
 					<th class="num">Ready</th>
 					<th class="num">Restarts</th>
-					<th>Node</th>
+					{#if data.clusterWide}<th>Node</th>{/if}
 					<th>Age</th>
 				</tr>
 			</thead>
@@ -223,13 +223,15 @@
 						<td><span class="phase phase-{p.phase.toLowerCase()}">{p.phase}</span></td>
 						<td class="num">{p.ready}</td>
 						<td class="num" class:bad={p.restarts > 0}>{p.restarts || ''}</td>
-						<td>
-							{#if p.node}
-								<a href="/k8s/{data.cluster}/nodes#{p.node}">{p.node}</a>
-							{:else}
-								<span class="muted">—</span>
-							{/if}
-						</td>
+						{#if data.clusterWide}
+							<td>
+								{#if p.node}
+									<a href="/k8s/{data.cluster}/nodes#{p.node}">{p.node}</a>
+								{:else}
+									<span class="muted">—</span>
+								{/if}
+							</td>
+						{/if}
 						<td>{fmtAge(p.creationTimestamp)}</td>
 					</tr>
 				{/each}

@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { canRead, accessibleNamespaces, hasAnyNamespaceRole } from '$lib/authz';
+import { redactorFor } from '$lib/node-redact.server';
 
 export type EventRow = {
 	type: string;
@@ -68,5 +69,11 @@ export const load: PageServerLoad = async (event) => {
 		error = err instanceof Error ? err.message : String(err);
 	}
 
-	return { cluster, rows, error };
+	// Namespace-scoped users: no Node events, node names scrubbed.
+	const clusterWide = accessible === 'all';
+	const r = await redactorFor(cluster, clusterWide);
+	const visible = clusterWide
+		? rows
+		: rows.filter((e) => !e.involved.startsWith('Node/')).map((e) => ({ ...e, message: r.text(e.message) }));
+	return { cluster, rows: visible, error };
 };

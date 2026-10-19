@@ -4,6 +4,7 @@ import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { auditScopedTo } from '$lib/audit.server';
 import { requireRead, canWrite, accessibleNamespaces } from '$lib/authz';
+import { redactorFor } from '$lib/node-redact.server';
 
 export type ContainerUsage = {
 	cpu?: string;
@@ -181,6 +182,9 @@ export const load: PageServerLoad = async (event) => {
 
 	// Node and host IP are cluster-level details: cluster-wide readers only.
 	const clusterWide = accessibleNamespaces(session, cluster) === 'all';
+	// Scrubs node names from event text and the node address a
+	// host-network pod reports as its pod IP.
+	const r = await redactorFor(cluster, clusterWide);
 	return {
 		cluster,
 		clusterWide,
@@ -189,7 +193,7 @@ export const load: PageServerLoad = async (event) => {
 			namespace: ns,
 			node: clusterWide ? pod.spec?.nodeName : undefined,
 			phase: pod.status?.phase ?? '?',
-			podIP: pod.status?.podIP,
+			podIP: r.ip(pod.status?.podIP),
 			hostIP: clusterWide ? pod.status?.hostIP : undefined,
 			qosClass: pod.status?.qosClass,
 			startTime: pod.status?.startTime
@@ -205,7 +209,7 @@ export const load: PageServerLoad = async (event) => {
 		containers,
 		volumes,
 		conditions,
-		events,
+		events: events.map((e) => ({ ...e, message: r.text(e.message) })),
 		eventsError,
 		metricsAvailable,
 		scopedAudit,

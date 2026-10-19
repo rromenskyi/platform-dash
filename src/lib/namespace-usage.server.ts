@@ -6,18 +6,22 @@ import { isPodFailing } from './pod-health';
 // only adds things up, so it can be tested without a cluster.
 
 type Resources = { requests?: Record<string, string>; limits?: Record<string, string> };
+type Terminated = { reason?: string; exitCode?: number; finishedAt?: string | Date };
+type ContainerStatus = {
+	name?: string;
+	ready?: boolean;
+	restartCount?: number;
+	state?: { waiting?: { reason?: string }; terminated?: Terminated };
+	lastState?: { terminated?: Terminated };
+};
+type ContainerSpec = { name: string; resources?: Resources; restartPolicy?: string };
 export type PodIn = {
 	metadata?: { name?: string; namespace?: string };
-	spec?: { containers?: Array<{ name: string; resources?: Resources }> };
+	spec?: { containers?: ContainerSpec[]; initContainers?: ContainerSpec[] };
 	status?: {
 		phase?: string;
-		containerStatuses?: Array<{
-			name?: string;
-			ready?: boolean;
-			restartCount?: number;
-			state?: { waiting?: { reason?: string } };
-			lastState?: { terminated?: { reason?: string; finishedAt?: string | Date } };
-		}>;
+		containerStatuses?: ContainerStatus[];
+		initContainerStatuses?: ContainerStatus[];
 	};
 };
 export type PodMetricsIn = {
@@ -53,6 +57,8 @@ export type NamespaceRow = Usage & {
 	failing: number;
 	restarts: number;
 	oom24h: number;
+	// Some active pods have no metrics sample: usage is a lower bound.
+	metricsPartial: boolean;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -84,7 +90,13 @@ export function summarize(pods: PodIn[], podMetrics: PodMetricsIn[] | null, nowM
 			memLim = 0,
 			cpuLimited = true,
 			memLimited = true;
-		for (const c of p.spec?.containers ?? []) {
+		// Native sidecars (init containers with restartPolicy: Always) run
+		// alongside the app and count; plain init containers have exited.
+		const running = [
+			...(p.spec?.containers ?? []),
+			...(p.spec?.initContainers ?? []).filter((c) => c.restartPolicy === 'Always')
+		];
+		for (const c of running) {
 			cpuReq += parseCpuMilli(c.resources?.requests?.cpu);
 			memReq += parseMemBytes(c.resources?.requests?.memory);
 			const cl = parseCpuMilli(c.resources?.limits?.cpu);
@@ -96,14 +108,18 @@ export function summarize(pods: PodIn[], podMetrics: PodMetricsIn[] | null, nowM
 		}
 		if (!cpuLimited) cpuLim = 0;
 		if (!memLimited) memLim = 0;
-		const statuses = p.status?.containerStatuses ?? [];
+		const statuses = [...(p.status?.containerStatuses ?? []), ...(p.status?.initContainerStatuses ?? [])];
 		const restarts = statuses.reduce((a, c) => a + (c.restartCount ?? 0), 0);
-		const lastTerm = statuses.find((c) => c.lastState?.terminated)?.lastState?.terminated;
-		const oom = statuses.some((c) => {
-			const t = c.lastState?.terminated;
-			if (t?.reason !== 'OOMKilled') return false;
-			const at = t.finishedAt ? new Date(t.finishedAt).getTime() : 0;
-			return !at || nowMs - at < DAY_MS;
+		// Current termination first (e.g. a Job that OOMed and stays Failed),
+		// then the previous one.
+		const terms = statuses.flatMap((c) => [c.state?.terminated, c.lastState?.terminated]).filter(
+			(t): t is Terminated => !!t
+		);
+		const lastTerm = terms.find((t) => t.reason && t.reason !== 'Completed');
+		const oom = terms.some((t) => {
+			if (t.reason !== 'OOMKilled' || !t.finishedAt) return false;
+			const at = new Date(t.finishedAt).getTime();
+			return Number.isFinite(at) && nowMs - at < DAY_MS;
 		});
 		const u = usage.get(`${namespace}/${name}`);
 		const failing = isPodFailing(p);
@@ -134,6 +150,7 @@ export function summarize(pods: PodIn[], podMetrics: PodMetricsIn[] | null, nowM
 				failing: 0,
 				restarts: 0,
 				oom24h: 0,
+				metricsPartial: false,
 				cpuUsedMilli: null,
 				cpuRequestMilli: 0,
 				cpuLimitMilli: 0,
@@ -157,13 +174,16 @@ export function summarize(pods: PodIn[], podMetrics: PodMetricsIn[] | null, nowM
 			lim.cpu &&= cpuLimited;
 			lim.mem &&= memLimited;
 		}
-		if (u) {
+		// Usage only for active pods, matching the denominators.
+		if (active && u) {
 			ns.cpuUsedMilli = (ns.cpuUsedMilli ?? 0) + u.cpu;
 			ns.memUsedBytes = (ns.memUsedBytes ?? 0) + u.mem;
 		}
+		if (active && !u && podMetrics) ns.metricsPartial = true;
 	}
 
 	for (const ns of byNs.values()) {
+		if (ns.cpuUsedMilli === null) ns.metricsPartial = false; // nothing measured at all
 		const lim = nsFullyLimited.get(ns.namespace)!;
 		if (!lim.cpu) ns.cpuLimitMilli = 0;
 		if (!lim.mem) ns.memLimitBytes = 0;

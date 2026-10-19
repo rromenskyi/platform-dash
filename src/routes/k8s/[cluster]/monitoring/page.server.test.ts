@@ -6,7 +6,10 @@ const pod = (ns: string, name: string) => ({
 	spec: { containers: [] },
 	status: { phase: 'Running', containerStatuses: [] }
 });
-const listNamespacedPod = vi.fn(async ({ namespace }: { namespace: string }) => ({ items: [pod(namespace, 'p')] }));
+const listNamespacedPod = vi.fn(async ({ namespace }: { namespace: string }) => {
+	if (namespace === 'gone') throw new Error('namespaces "gone" not found');
+	return { items: [pod(namespace, 'p')] };
+});
 const listPodForAllNamespaces = vi.fn(async () => ({ items: [pod('a', 'p'), pod('b', 'p')] }));
 
 vi.mock('$lib/k8s.server', () => ({
@@ -48,5 +51,18 @@ describe('monitoring loader scope', () => {
 		await expect(load(event([]))).rejects.toMatchObject({ status: 403 });
 		const anon = { ...event([]), locals: { auth: async () => null } } as unknown as Parameters<typeof load>[0];
 		await expect(load(anon)).rejects.toMatchObject({ status: 303 });
+	});
+
+	it('keeps the namespaces that loaded when one fails', async () => {
+		const data = (await load(event(['namespace_a_admin', 'namespace_gone_admin']))) as {
+			namespaces: { namespace: string }[];
+			error: string | null;
+		};
+		expect(data.namespaces.map((n) => n.namespace)).toEqual(['a']);
+		expect(data.error).toMatch(/gone/);
+	});
+
+	it('rejects a malformed ?ns=', async () => {
+		await expect(load(event(['platform_sre'], 'ns=Bad_NS'))).rejects.toMatchObject({ status: 400 });
 	});
 });

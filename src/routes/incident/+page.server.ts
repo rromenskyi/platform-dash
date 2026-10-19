@@ -10,6 +10,7 @@ import { listClusters } from '$lib/clusters.server';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { isPodFailing } from '$lib/pod-health';
+import { redactorFor } from '$lib/node-redact.server';
 
 export type FailingPod = {
 	cluster: string;
@@ -61,6 +62,8 @@ export type ClusterReport = {
 	warningEvents: WarningEvent[];
 	badNodes: BadNode[];
 	oomKilled: OomPod[];
+	// Node health shown for this cluster (cluster-wide read on it).
+	nodesVisible: boolean;
 	totals: { pods: number; nodes: number; events: number; oom: number };
 };
 
@@ -163,6 +166,7 @@ export const load: PageServerLoad = async (event) => {
 				// see it (ns-only operators get pods/events of their own
 				// namespaces only).
 				const seeNodes = accessible === 'all';
+				const redact = await redactorFor(cluster, seeNodes);
 				const badNodes: BadNode[] = [];
 				let nodeReadyCount = 0;
 				for (const n of seeNodes ? nodes.items : []) {
@@ -204,7 +208,7 @@ export const load: PageServerLoad = async (event) => {
 						namespace: e.metadata?.namespace ?? e.involvedObject?.namespace ?? '?',
 						involved: `${e.involvedObject?.kind ?? '?'}/${e.involvedObject?.name ?? '?'}`,
 						reason: e.reason ?? '?',
-						message: e.message ?? '',
+						message: redact.text(e.message ?? ''),
 						count: e.count ?? 1,
 						lastSeen: e.lastTimestamp
 							? new Date(e.lastTimestamp).toISOString()
@@ -222,6 +226,7 @@ export const load: PageServerLoad = async (event) => {
 					warningEvents,
 					badNodes,
 					oomKilled: oomKilled.slice(0, 20),
+					nodesVisible: seeNodes,
 					// Counts only what this session can read — cluster-wide
 					// totals would leak other tenants' pod/event volume to
 					// ns-only operators.
@@ -243,6 +248,7 @@ export const load: PageServerLoad = async (event) => {
 					warningEvents: [],
 					badNodes: [],
 					oomKilled: [],
+					nodesVisible: false,
 					totals: { pods: 0, nodes: 0, events: 0, oom: 0 }
 				};
 			}
