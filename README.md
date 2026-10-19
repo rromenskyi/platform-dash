@@ -58,6 +58,9 @@ for all of them):
 Node CPU/memory "actual" bars need metrics-server (k3s ships it). Disk
 bars read the kubelet stats via the API server and need full RBAC.
 
+Run a single replica (the default) or pin sessions to one pod: access
+tokens are refreshed with rotating refresh tokens, coordinated per process.
+
 Upgrade with `helm upgrade dash platform-dash/deploy/helm/platform-dash
 --reuse-values`; the session key is generated once and kept.
 
@@ -125,7 +128,8 @@ its own 401s, pass through unchanged.
   theme: 'light' | 'dark',
   base: '/plugin-api/<id>',       // prefix for API calls and assets
   route: '/plugins/<id>',         // page root
-  path: string,                   // subpath after route, '' at the root
+  path: string,                   // subpath after route ('' at the root),
+                                  // percent-encoded like location.pathname
   navigate(path, { replace? }),   // move within the plugin (keeps history)
   reauth()                        // sign in again and come back here
 }

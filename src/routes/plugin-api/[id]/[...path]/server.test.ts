@@ -108,7 +108,20 @@ describe('plugin API proxy', () => {
 		expect((await call('adm', 'x', { roles: ['platform_sre'] })).status).toBe(403);
 		expect((await call('adm', 'api/echo', { roles: ['platform_admin'] })).status).toBe(200);
 		expect((await call('nope', 'x')).status).toBe(404);
-		expect((await call('web', 'a/../../etc')).status).toBe(400);
+		// URL parsing already collapses "..", so a traversal attempt via an
+		// encoded slash must stay one encoded segment under the plugin.
+		const res = await call('web', 'api/echo/..%2F..%2Fsecret');
+		expect((await res.json()).url).toBe('/api/echo/..%2F..%2Fsecret');
+	});
+
+	it('keeps an encoded slash inside one upstream segment', async () => {
+		const res = await call('web', 'api/echo/team%2Frepo');
+		expect((await res.json()).url).toBe('/api/echo/team%2Frepo');
+	});
+
+	it("doesn't reveal which plugin ids exist to anonymous callers", async () => {
+		expect((await call('nope', 'x', { anon: true })).status).toBe(401);
+		expect((await call('web', 'x', { anon: true })).status).toBe(401);
 	});
 
 	it('rejects oversized bodies', async () => {

@@ -11,8 +11,12 @@ import { extractRoles } from './oidc-config';
 // cookie — parallel loads, or the WS bridge in start.js, which reads the
 // session but can't persist the re-issued cookie. So refreshes are
 // de-duplicated per old refresh token and the result is remembered for
-// a few minutes: every request carrying that cookie gets the same new
-// token set instead of burning the rotated token again.
+// the session's lifetime: any request still carrying that cookie gets
+// the rotated set (refreshed again in turn if that one has expired)
+// instead of replaying a dead refresh token.
+//
+// The map is per process: run a single replica (the chart default) or
+// pin sessions to a pod, or concurrent refreshes on two pods race.
 
 export type TokenSet = {
 	accessToken?: string;
@@ -32,7 +36,11 @@ type Deps = {
 };
 
 const SKEW_S = 60;
-const REMEMBER_MS = 5 * 60 * 1000;
+const REMEMBER_MS = 12 * 60 * 60 * 1000; // = absolute session lifetime
+const IDP_TIMEOUT_MS = 10_000;
+// Used when the token response omits expires_in, so the token is still
+// refreshed instead of being treated as fresh forever.
+const DEFAULT_TTL_S = 300;
 
 export function decodeJwtPayload(jwt: string | undefined): Record<string, unknown> | null {
 	if (!jwt) return null;
@@ -54,7 +62,9 @@ export function createRefresher(deps: Deps) {
 	let endpoint: Promise<string> | null = null;
 
 	function tokenEndpoint(): Promise<string> {
-		endpoint ??= doFetch(`${deps.issuer}/.well-known/openid-configuration`)
+		endpoint ??= doFetch(`${deps.issuer}/.well-known/openid-configuration`, {
+			signal: AbortSignal.timeout(IDP_TIMEOUT_MS)
+		})
 			.then((r) => {
 				if (!r.ok) throw new Error(`discovery ${r.status}`);
 				return r.json();
@@ -79,24 +89,28 @@ export function createRefresher(deps: Deps) {
 		} else {
 			body.set('client_id', deps.clientId ?? '');
 		}
-		let res: Response;
+		// Transient trouble (unreachable, timeout, 5xx/429, garbage body):
+		// keep a still-valid token and don't remember the outcome; only an
+		// explicit rejection of the refresh token ends the session.
+		const transient = () => (t.expiresAt && t.expiresAt > now() / 1000 ? t : null);
+		let j: { access_token?: string; expires_in?: number; refresh_token?: string; id_token?: string };
 		try {
-			res = await doFetch(await tokenEndpoint(), { method: 'POST', headers, body });
+			const res = await doFetch(await tokenEndpoint(), {
+				method: 'POST',
+				headers,
+				body,
+				signal: AbortSignal.timeout(IDP_TIMEOUT_MS)
+			});
+			if (res.status === 400 || res.status === 401) return null; // invalid_grant / invalid_client
+			if (!res.ok) return transient();
+			j = await res.json();
 		} catch {
-			// IdP unreachable: keep a still-valid token, drop an expired one.
-			return t.expiresAt && t.expiresAt > now() / 1000 ? t : null;
+			return transient();
 		}
-		if (!res.ok) return null; // refresh token revoked/expired → sign in again
-		const j = (await res.json()) as {
-			access_token?: string;
-			expires_in?: number;
-			refresh_token?: string;
-			id_token?: string;
-		};
-		if (!j.access_token) return null;
+		if (!j?.access_token) return transient();
 		return {
 			accessToken: j.access_token,
-			expiresAt: j.expires_in ? Math.floor(now() / 1000) + j.expires_in : undefined,
+			expiresAt: Math.floor(now() / 1000) + (j.expires_in || DEFAULT_TTL_S),
 			refreshToken: j.refresh_token ?? t.refreshToken,
 			idToken: j.id_token ?? t.idToken,
 			// A refreshed id_token carries current roles — pick them up.
@@ -106,7 +120,7 @@ export function createRefresher(deps: Deps) {
 
 	// Returns the token set to use (possibly refreshed), or null when the
 	// session can no longer produce a valid access token.
-	return async function ensureFresh(t: TokenSet): Promise<TokenSet | null> {
+	async function ensureFresh(t: TokenSet, hop = 0): Promise<TokenSet | null> {
 		if (!t.expiresAt || t.expiresAt - SKEW_S > now() / 1000) return t;
 		if (!t.refreshToken) return t.expiresAt > now() / 1000 ? t : null;
 
@@ -123,6 +137,12 @@ export function createRefresher(deps: Deps) {
 			entry = { at: now(), result };
 			recent.set(key, entry);
 		}
-		return entry.result;
-	};
+		const r = await entry.result;
+		// A remembered rotation may itself be near expiry by now (the
+		// browser never received it): refresh onward from it — one hop, so
+		// an IdP issuing sub-minute tokens can't loop us.
+		return r && r !== t && hop === 0 ? ensureFresh(r, 1) : r;
+	}
+
+	return ensureFresh;
 }

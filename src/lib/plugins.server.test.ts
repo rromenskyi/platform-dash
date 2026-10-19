@@ -44,6 +44,37 @@ describe('parsePlugins', () => {
 	});
 });
 
+describe('roles fail closed', () => {
+	it('skips an entry whose roles is not a list of names', () => {
+		const log = vi.fn();
+		const out = parsePlugins(
+			JSON.stringify([
+				{ ...good, id: 'a', roles: 'platform_admin' },
+				{ ...good, id: 'b', roles: [1] },
+				{ ...good, id: 'c', roles: [''] },
+				{ ...good, id: 'd', roles: [] }
+			]),
+			log
+		);
+		expect(out.map((p) => p.id)).toEqual(['d']);
+		expect(log).toHaveBeenCalledTimes(3);
+	});
+});
+
+describe('rewriteLocation', () => {
+	it('maps plugin locations under the proxy prefix, honouring a url path', async () => {
+		const { rewriteLocation } = await import('./plugins.server');
+		const b = '/plugin-api/x';
+		expect(rewriteLocation('/login', 'http://svc:8080', b)).toBe('/plugin-api/x/login');
+		expect(rewriteLocation('http://svc:8080/a?q=1', 'http://svc:8080', b)).toBe('/plugin-api/x/a?q=1');
+		expect(rewriteLocation('/app/login', 'http://svc/app', b)).toBe('/plugin-api/x/login');
+		expect(rewriteLocation('http://svc/app/login', 'http://svc/app', b)).toBe('/plugin-api/x/login');
+		expect(rewriteLocation('//evil.example/x', 'http://svc', b)).toBe('//evil.example/x');
+		expect(rewriteLocation('https://idp.example/auth', 'http://svc', b)).toBe('https://idp.example/auth');
+		expect(rewriteLocation('next', 'http://svc', b)).toBe('next');
+	});
+});
+
 describe('canUsePlugin', () => {
 	const p = parsePlugins(JSON.stringify([{ ...good, roles: ['platform_admin'] }, { ...good, id: 'open' }]));
 	const s = (roles: string[]) => ({ user: { email: 'u@x' }, roles, expires: '' });

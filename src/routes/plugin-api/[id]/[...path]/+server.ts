@@ -41,19 +41,27 @@ const RES_HEADERS = [
 const sessionExpired = () => json({ error: 'session_expired' }, { status: 401 });
 
 export const fallback: RequestHandler = async ({ params, request, url, locals, getClientAddress }) => {
+	// Session first, so anonymous callers can't probe which plugin ids
+	// exist. Also runs the jwt callback: a near-expiry token is refreshed
+	// and the new cookie persisted before we read it below.
+	const session = await locals.auth();
+	if (!session?.user) return sessionExpired();
 	const plugin = findPlugin(params.id ?? '');
 	if (!plugin) return json({ error: 'unknown_plugin' }, { status: 404 });
+	if (!canUsePlugin(session, plugin)) return json({ error: 'forbidden' }, { status: 403 });
 
-	const segments = (params.path ?? '').split('/');
+	// Split the raw path, not the decoded param: SvelteKit decodes %2F
+	// into "/", which would turn one segment into two upstream.
+	const rawRest = url.pathname.split('/').slice(3); // ['', 'plugin-api', id, ...rest]
+	let segments: string[];
+	try {
+		segments = rawRest.map((s) => decodeURIComponent(s));
+	} catch {
+		return json({ error: 'bad_path' }, { status: 400 });
+	}
 	if (segments.some((s) => s === '.' || s === '..')) {
 		return json({ error: 'bad_path' }, { status: 400 });
 	}
-
-	// Runs the jwt callback: refreshes a near-expiry token and persists
-	// the new cookie before we read it below.
-	const session = await locals.auth();
-	if (!session?.user) return sessionExpired();
-	if (!canUsePlugin(session, plugin)) return json({ error: 'forbidden' }, { status: 403 });
 	const accessToken = await currentAccessToken(request);
 	if (!accessToken) return sessionExpired();
 

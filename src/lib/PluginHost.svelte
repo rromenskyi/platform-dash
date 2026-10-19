@@ -54,7 +54,11 @@
 			s.type = 'module';
 			s.src = src;
 			s.dataset.plugin = id;
-			s.onerror = () => (loadError = `Could not load ${src}`);
+			s.onerror = () => {
+				// Drop the failed tag so the next visit retries the load.
+				s.remove();
+				loadError = `Could not load ${src}`;
+			};
 			document.head.appendChild(s);
 		}
 		return customElements.whenDefined(tag).then(() => undefined);

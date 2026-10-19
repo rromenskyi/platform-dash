@@ -7,6 +7,8 @@ image:
   tag: ""                   # defaults to .Chart.AppVersion
   pullPolicy: ""            # defaults to Always for "latest", else IfNotPresent
 
+# Keep at 1 unless sessions are pinned to a pod: access-token refresh
+# uses rotating refresh tokens, coordinated within one process.
 replicaCount: 1
 
 # OIDC login. Any provider works (Zitadel, Keycloak, Authentik, Dex…).

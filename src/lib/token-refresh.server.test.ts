@@ -76,6 +76,31 @@ describe('ensureFresh', () => {
 		expect(tokenCalls()).toHaveLength(1);
 	});
 
+	it('keeps a still-valid token on a 5xx/429 and retries next time', async () => {
+		let status = 503;
+		const { ensureFresh, tokenCalls } = setup(() =>
+			status === 200
+				? Response.json({ access_token: 'new', expires_in: 3600 })
+				: new Response('busy', { status })
+		);
+		expect((await ensureFresh(expiring))?.accessToken).toBe('old');
+		status = 429;
+		expect((await ensureFresh(expiring))?.accessToken).toBe('old');
+		status = 200;
+		expect((await ensureFresh(expiring))?.accessToken).toBe('new');
+		expect(tokenCalls()).toHaveLength(3);
+	});
+
+	it('keeps a still-valid token on a non-JSON 200', async () => {
+		const { ensureFresh } = setup(() => new Response('<html>oops</html>', { status: 200 }));
+		expect((await ensureFresh(expiring))?.accessToken).toBe('old');
+	});
+
+	it('gives tokens without expires_in a short lifetime instead of none', async () => {
+		const { ensureFresh } = setup(() => Response.json({ access_token: 'new' }));
+		expect((await ensureFresh(expiring))?.expiresAt).toBe(NOW / 1000 + 300);
+	});
+
 	it('ends the session when the IdP rejects the refresh token', async () => {
 		const { ensureFresh } = setup(() => new Response('{"error":"invalid_grant"}', { status: 400 }));
 		expect(await ensureFresh(expiring)).toBeNull();
@@ -98,5 +123,27 @@ describe('ensureFresh', () => {
 			throw new Error('ECONNREFUSED');
 		});
 		expect(await ensureFresh({ ...expiring, expiresAt: NOW / 1000 - 5 })).toBeNull();
+	});
+
+	it('refreshes onward from a remembered rotation that has since expired', async () => {
+		let now = NOW;
+		let n = 0;
+		const calls: string[] = [];
+		const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url.endsWith('/.well-known/openid-configuration')) {
+				return Response.json({ token_endpoint: 'https://idp/oauth/token' });
+			}
+			calls.push(String(init?.body));
+			n++;
+			return Response.json({ access_token: `a${n}`, expires_in: 600, refresh_token: `r${n + 1}` });
+		}) as unknown as typeof globalThis.fetch;
+		const ensureFresh = createRefresher({ issuer: 'https://idp', clientId: 'd', rolesClaim: 'g', fetch, now: () => now });
+		// WS bridge refreshes r1 → r2, but the browser never gets the cookie.
+		expect((await ensureFresh(expiring))?.refreshToken).toBe('r2');
+		// 20 min later the browser still sends r1; r2's token has expired.
+		now += 20 * 60 * 1000;
+		const r = await ensureFresh(expiring);
+		expect(r).toMatchObject({ accessToken: 'a2', refreshToken: 'r3' });
+		expect(calls.map((b) => /refresh_token=(r\d)/.exec(b)?.[1])).toEqual(['r1', 'r2']);
 	});
 });

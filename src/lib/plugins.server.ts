@@ -58,7 +58,7 @@ export function parsePlugins(raw: string | undefined, log: (m: string) => void =
 			icon: typeof p.icon === 'string' ? p.icon : undefined,
 			element: p.element as string,
 			url: (p.url as string).replace(/\/+$/, ''),
-			roles: Array.isArray(p.roles) ? (p.roles as unknown[]).filter((r): r is string => typeof r === 'string') : []
+			roles: (p.roles as string[] | undefined) ?? []
 		});
 	});
 	return out;
@@ -71,6 +71,13 @@ function invalid(p: Record<string, unknown>, seen: Set<string>): string | null {
 	if (typeof p.title !== 'string' || !p.title.trim()) return 'title is required';
 	if (typeof p.element !== 'string' || !ELEMENT.test(p.element)) return 'element must be a custom-element name (with a hyphen)';
 	if (typeof p.url !== 'string') return 'url is required';
+	// Fail closed: a malformed roles value must not turn into "everyone".
+	if (
+		p.roles !== undefined &&
+		(!Array.isArray(p.roles) || p.roles.some((r) => typeof r !== 'string' || !r.trim()))
+	) {
+		return 'roles must be an array of role names (omit or [] for every signed-in user)';
+	}
 	try {
 		const u = new URL(p.url);
 		if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'url must be http(s)';
@@ -103,12 +110,20 @@ export function findPlugin(id: string): Plugin | undefined {
 	return listPlugins().find((p) => p.id === id);
 }
 
-// Keep plugin redirects inside the proxy: "/x" and "<plugin url>/x"
-// become "<base>/x"; relative and external locations pass through.
+// Keep plugin redirects inside the proxy. Locations on the plugin —
+// "<plugin url>/x", or "/<plugin url path>/x" when the url has a path —
+// become "<base>/x"; other absolute-path locations are taken as relative
+// to the plugin root; relative and external ones pass through.
 export function rewriteLocation(loc: string, pluginUrl: string, base: string): string {
-	if (loc.startsWith('/') && !loc.startsWith('//')) return base + loc;
 	if (loc === pluginUrl || loc.startsWith(pluginUrl + '/') || loc.startsWith(pluginUrl + '?')) {
 		return base + (loc.slice(pluginUrl.length) || '/');
+	}
+	if (loc.startsWith('/') && !loc.startsWith('//')) {
+		const prefix = new URL(pluginUrl).pathname.replace(/\/+$/, '');
+		if (prefix && (loc === prefix || loc.startsWith(prefix + '/') || loc.startsWith(prefix + '?'))) {
+			return base + (loc.slice(prefix.length) || '/');
+		}
+		return base + loc;
 	}
 	return loc;
 }
