@@ -7,6 +7,8 @@ image:
   tag: ""                   # defaults to .Chart.AppVersion
   pullPolicy: ""            # defaults to Always for "latest", else IfNotPresent
 
+# Keep at 1 unless sessions are pinned to a pod: access-token refresh
+# uses rotating refresh tokens, coordinated within one process.
 replicaCount: 1
 
 # OIDC login. Any provider works (Zitadel, Keycloak, Authentik, Dex…).
@@ -65,6 +67,11 @@ ingress:
   annotations: {}
   tls: []
   #  - secretName: platform-dash-tls
+
+# Plugins (see README "Plugins"): list of
+#   {id, title, icon, element, url, roles}
+# Only list plugins you control — they get users' access tokens.
+plugins: []
 
 # Extra environment, e.g. DASH_CLUSTERS_JSON or DASH_DB_TARGETS_JSON.
 extraEnv: []

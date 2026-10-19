@@ -77,6 +77,12 @@
 	});
 	let pathname = $derived(page.url.pathname);
 	let canRead = $derived(!!page.data.canRead);
+	let plugins = $derived(
+		(page.data.plugins as Array<{ id: string; title: string; icon: string | null }> | undefined) ?? []
+	);
+	// Plugins with no role restriction are open to any signed-in user, so
+	// the sidebar shows for them even without cluster read access.
+	let showSidebar = $derived(!!session?.user && (canRead || plugins.length > 0));
 	let canWrite = $derived(!!page.data.canWrite);
 	let defaultCluster = $derived((page.data.defaultCluster as string | undefined) ?? 'local');
 	let tree = $derived((page.data.tree as SerializableNode[] | undefined) ?? []);
@@ -161,7 +167,7 @@
 </svelte:head>
 
 <header class="topbar">
-	{#if session?.user && canRead}
+	{#if showSidebar}
 		<button
 			class="hamburger"
 			onclick={() => (mobileSidebar = !mobileSidebar)}
@@ -290,14 +296,14 @@
 {/snippet}
 
 <div class="layout">
-	{#if session?.user && canRead && mobileSidebar}
+	{#if showSidebar && mobileSidebar}
 		<button
 			class="sidebar-backdrop"
 			aria-label="Close sidebar"
 			onclick={() => (mobileSidebar = false)}
 		></button>
 	{/if}
-	{#if session?.user && canRead}
+	{#if showSidebar}
 		<aside class="sidebar" class:mobile-open={mobileSidebar}>
 			{#if tree.length > 0}
 				<div class="group">
@@ -305,6 +311,23 @@
 					<ul class="tree">
 						{#each tree as n}
 							{@render treeNode(n, 0)}
+						{/each}
+					</ul>
+				</div>
+			{/if}
+			{#if plugins.length > 0}
+				<div class="group">
+					<h3>Plugins</h3>
+					<ul class="tree">
+						{#each plugins as p}
+							<li class="tnode">
+								<div class="trow">
+									<span class="caret-spacer"></span>
+									<a class="tlink" class:active={isHrefActive(`/plugins/${p.id}`)} href="/plugins/{p.id}"
+										><span>{#if p.icon}<span class="picon">{p.icon}</span>{/if}{p.title}</span></a
+									>
+								</div>
+							</li>
 						{/each}
 					</ul>
 				</div>
@@ -679,4 +702,5 @@
 		}
 		.sidebar-backdrop { display: block; }
 	}
+	.picon { margin-right: 0.4rem; }
 </style>

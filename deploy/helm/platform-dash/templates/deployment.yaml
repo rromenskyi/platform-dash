@@ -72,6 +72,10 @@ spec:
               value: {{ include "platform-dash.serviceAccountName" . | quote }}
             - name: CLOUDSHELL_TTL_SECONDS
               value: {{ .Values.cloudshell.ttlSeconds | quote }}
+            {{- with .Values.plugins }}
+            - name: DASH_PLUGINS_JSON
+              value: {{ toJson . | quote }}
+            {{- end }}
             {{- with .Values.cloudshell.image }}
             - name: CLOUDSHELL_IMAGE
               value: {{ . | quote }}

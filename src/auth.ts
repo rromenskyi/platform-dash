@@ -1,23 +1,7 @@
 import { SvelteKitAuth } from '@auth/sveltekit';
 import { env } from '$env/dynamic/private';
 import { resolveOidc, extractRoles } from '$lib/oidc-config';
-
-// Decode the payload of a JWT (no signature verify — the token came
-// from our IdP via the OAuth code flow that Auth.js already validated).
-// Returns null on any malformed input so a bad token can't crash login.
-function decodeJwtPayload(jwt: string | undefined): Record<string, unknown> | null {
-	if (!jwt) return null;
-	const parts = jwt.split('.');
-	if (parts.length < 2) return null;
-	try {
-		const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-		const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
-		const json = Buffer.from(b64 + pad, 'base64').toString('utf8');
-		return JSON.parse(json);
-	} catch {
-		return null;
-	}
-}
+import { createRefresher, decodeJwtPayload } from '$lib/token-refresh.server';
 
 // Generic OIDC provider — see $lib/oidc-config for the env contract.
 // AUTH_SECRET is the cookie-encryption key — generate with `openssl rand -hex 32`.
@@ -25,6 +9,14 @@ function decodeJwtPayload(jwt: string | undefined): Record<string, unknown> | nu
 // `$env/dynamic/private` resolves at runtime (process.env), so
 // k8s ConfigMap/Secret injection works without a build-time .env.
 const oidc = resolveOidc(env);
+
+// Keeps the access token fresh for plugin proxying (see token-refresh.server).
+export const ensureFresh = createRefresher({
+	issuer: oidc.issuer,
+	clientId: oidc.clientId,
+	clientSecret: oidc.clientSecret,
+	rolesClaim: oidc.rolesClaim
+});
 
 // Absolute session lifetime, independent of activity (see jwt()).
 const SESSION_ABSOLUTE_MS = 12 * 60 * 60 * 1000;
@@ -56,6 +48,8 @@ export const { handle, signIn, signOut } = SvelteKitAuth({
 			if (account) {
 				token.accessToken = account.access_token;
 				token.idToken = account.id_token;
+				token.refreshToken = account.refresh_token;
+				token.expiresAt = account.expires_at;
 				token.roles = extractRoles(decodeJwtPayload(account.id_token), oidc.rolesClaim);
 				token.authAt = Date.now();
 			}
@@ -67,7 +61,11 @@ export const { handle, signIn, signOut } = SvelteKitAuth({
 			if (!token.authAt || Date.now() - token.authAt > SESSION_ABSOLUTE_MS) {
 				return null;
 			}
-			return token;
+			// Refresh the access token near expiry; a refresh the IdP
+			// refuses ends the session rather than keeping a dead token.
+			const fresh = await ensureFresh(token);
+			if (!fresh) return null;
+			return { ...token, ...fresh };
 		},
 		// Tokens stay in the encrypted JWT cookie only. Every layout
 		// returns the session to the page, so putting them here would
@@ -75,6 +73,8 @@ export const { handle, signIn, signOut } = SvelteKitAuth({
 		// (and /auth/session). /profile reads them via getToken().
 		async session({ session, token }) {
 			session.roles = (token.roles as string[] | undefined) ?? [];
+			// Stable IdP subject — plugins key users on it.
+			if (session.user && token.sub) session.user.id = token.sub;
 			return session;
 		}
 	}
