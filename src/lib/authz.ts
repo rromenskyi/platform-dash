@@ -208,3 +208,17 @@ export function requireWrite(
 		);
 	}
 }
+
+// Short label for the topbar badge — the broadest access the session
+// has: 'admin' / 'sre' for platform- or cluster-wide roles, 'ns admin'
+// / 'ns read' when access is namespace-scoped only, '' for none.
+export function roleBadge(session: Session | null | undefined, clusters: string[]): string {
+	if (hasRole(session, ROLE_ADMIN) || clusters.some((c) => hasRole(session, clusterRoleAdmin(c))))
+		return 'admin';
+	if (hasRole(session, ROLE_SRE) || clusters.some((c) => hasRole(session, clusterRoleSre(c))))
+		return 'sre';
+	const roles = session?.roles ?? [];
+	if (roles.some((r) => /^namespace_.+_admin$/.test(r))) return 'ns admin';
+	if (roles.some((r) => /^namespace_.+_sre$/.test(r))) return 'ns read';
+	return '';
+}

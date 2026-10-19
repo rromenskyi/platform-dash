@@ -9,10 +9,10 @@ import { listClusters } from './clusters.server';
 // global namespace selector already covers that UX. When it makes
 // sense to surface "ns -> resource" deeply (e.g. for a graph view),
 // add another level here without changing the contract.
-// `canSeeNodes` hides the cluster-scoped Nodes entry from ns-only
+// `clusterWide` hides cluster-scoped entries (Nodes, CRDs) from ns-only
 // operators (the page itself 403s for them).
 export function buildK8sTree(
-	canSeeNodes: (cluster: string) => boolean = () => true
+	clusterWide: (cluster: string) => boolean = () => true
 ): ResourceNode[] {
 	return listClusters().map((cluster) => ({
 		id: `k8s/${cluster}`,
@@ -26,7 +26,7 @@ export function buildK8sTree(
 				href: `/k8s/${cluster}/workloads`,
 				meta: { family: 'k8s' }
 			},
-			...(canSeeNodes(cluster)
+			...(clusterWide(cluster)
 				? [
 						{
 							id: `k8s/${cluster}/nodes`,
@@ -78,12 +78,16 @@ export function buildK8sTree(
 				href: `/k8s/${cluster}/cronjobs`,
 				meta: { family: 'k8s' }
 			},
-			{
-				id: `k8s/${cluster}/crds`,
-				label: 'CRDs',
-				href: `/k8s/${cluster}/crds`,
-				meta: { family: 'k8s' }
-			},
+			...(clusterWide(cluster)
+				? [
+						{
+							id: `k8s/${cluster}/crds`,
+							label: 'CRDs',
+							href: `/k8s/${cluster}/crds`,
+							meta: { family: 'k8s' }
+						}
+					]
+				: []),
 			{
 				id: `k8s/${cluster}/events`,
 				label: 'Events',
@@ -102,14 +106,14 @@ export function buildK8sTree(
 
 // Top-level: k8s family + db family. New families append here.
 import { buildDbTree } from './resource-tree-db.server';
-export function buildAllTrees(canSeeNodes?: (cluster: string) => boolean): ResourceNode[] {
+export function buildAllTrees(clusterWide?: (cluster: string) => boolean): ResourceNode[] {
 	const dbChildren = buildDbTree();
 	const trees: ResourceNode[] = [
 		{
 			id: 'k8s',
 			label: 'k8s',
 			meta: { family: 'k8s' },
-			children: () => buildK8sTree(canSeeNodes)
+			children: () => buildK8sTree(clusterWide)
 		}
 	];
 	if (dbChildren.length > 0) {

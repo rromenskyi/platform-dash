@@ -4,6 +4,7 @@ import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { withDeadline } from '$lib';
 import { requireRead, accessibleNamespaces } from '$lib/authz';
+import { parseCpuMilli, parseMemBytes } from '$lib/quantity';
 
 export type NodePod = {
 	namespace: string;
@@ -56,43 +57,6 @@ export type NodeRow = {
 	pods: NodePod[];
 };
 
-// Quantity parsers — k8s expresses CPU as "100m" or "1" and memory as
-// "256Mi" / "2Gi" etc. We only need the numeric value for summation;
-// no unit conversion required for display since we sum like-for-like
-// then re-render as the same units the node reports.
-function parseCpu(v: string | undefined): number {
-	if (!v) return 0;
-	// metrics-server reports node/pod usage in nanocores ("139403626n");
-	// requests come in cores ("1") or millicores ("100m"). Normalise all
-	// to millicores so the rest of the page sums + renders one unit.
-	if (v.endsWith('n')) return parseFloat(v) / 1_000_000;
-	if (v.endsWith('u') || v.endsWith('µ')) return parseFloat(v) / 1_000;
-	if (v.endsWith('m')) return parseFloat(v);
-	const n = parseFloat(v);
-	return Number.isFinite(n) ? n * 1000 : 0;
-}
-
-const MEM_UNITS: Record<string, number> = {
-	Ki: 1024,
-	Mi: 1024 ** 2,
-	Gi: 1024 ** 3,
-	Ti: 1024 ** 4,
-	Pi: 1024 ** 5,
-	K: 1000,
-	M: 1000 ** 2,
-	G: 1000 ** 3,
-	T: 1000 ** 4,
-	P: 1000 ** 5
-};
-function parseMem(v: string | undefined): number {
-	if (!v) return 0;
-	const m = /^([\d.]+)([a-zA-Z]*)$/.exec(v);
-	if (!m) return 0;
-	const num = parseFloat(m[1]);
-	if (!Number.isFinite(num)) return 0;
-	const mult = m[2] ? (MEM_UNITS[m[2]] ?? 1) : 1;
-	return num * mult;
-}
 
 function rolesFromLabels(labels: Record<string, string>): string[] {
 	const roles: string[] = [];
@@ -196,8 +160,8 @@ export const load: PageServerLoad = async (event) => {
 			metricsAvailable = true;
 			for (const m of nodeMetricsRes.items) {
 				usageByNode.set(m.metadata.name, {
-					cpuMilli: parseCpu(m.usage.cpu),
-					memBytes: parseMem(m.usage.memory)
+					cpuMilli: parseCpuMilli(m.usage.cpu),
+					memBytes: parseMemBytes(m.usage.memory)
 				});
 			}
 		}
@@ -233,8 +197,8 @@ export const load: PageServerLoad = async (event) => {
 				if (p.status?.phase !== 'Running' && p.status?.phase !== 'Pending') continue;
 				for (const c of p.spec?.containers ?? []) {
 					const req = c.resources?.requests as Record<string, string> | undefined;
-					cpuMilli += parseCpu(req?.cpu);
-					memBytes += parseMem(req?.memory);
+					cpuMilli += parseCpuMilli(req?.cpu);
+					memBytes += parseMemBytes(req?.memory);
 				}
 			}
 

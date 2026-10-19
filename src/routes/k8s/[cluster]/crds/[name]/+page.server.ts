@@ -26,9 +26,10 @@ function pickServingVersion(versions: CrdVersionInfo[]): string | null {
 
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
-	// Same entry gate as the cluster layout — page loads can run
-	// without the layouts (__data.json), so check here too.
-	requireRead(session, event.params.cluster, undefined, { forCluster: true });
+	// CRD definitions are cluster-scoped: cluster-wide readers only
+	// (authz.ts). Checked here too — page loads can run without the
+	// layouts (__data.json).
+	requireRead(session, event.params.cluster);
 
 	const { name, cluster } = event.params;
 

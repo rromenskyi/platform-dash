@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import { core, apps, apiextensions, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { accessibleNamespaces } from '$lib/authz';
+import { parseCpuMilli, parseMemBytes } from '$lib/quantity';
 
 export const load: PageServerLoad = async (event) => {
 	const session = await event.locals.auth();
@@ -15,12 +16,15 @@ export const load: PageServerLoad = async (event) => {
 	// Cluster summary — pulled once per request, cached implicitly by
 	// SvelteKit's data-loading. Cheap reads (counts only).
 	let summary: {
-		nodes: { ready: number; total: number };
+		// null for namespace-scoped users: nodes and CRD definitions are
+		// cluster-scoped and not theirs to see.
+		nodes: { ready: number; total: number } | null;
 		namespaces: number;
 		pods: { running: number; pending: number; failed: number; total: number };
 		deployments: { ready: number; total: number };
-		crds: number;
+		crds: number | null;
 	};
+	const clusterWide = accessibleNamespaces(session, cluster) === 'all';
 
 	try {
 		const [nodesRes, nsRes, podsRes, depsRes, crdsRes] = await Promise.all([
@@ -74,7 +78,7 @@ export const load: PageServerLoad = async (event) => {
 				: nsRes.items.filter((n) => accessible.includes(n.metadata?.name ?? '')).length;
 
 		summary = {
-			nodes: { ready: nodesReady, total: nodes.length },
+			nodes: clusterWide ? { ready: nodesReady, total: nodes.length } : null,
 			namespaces: visibleNamespaces,
 			pods: {
 				running: phaseCount('Running'),
@@ -83,10 +87,7 @@ export const load: PageServerLoad = async (event) => {
 				total: pods.length
 			},
 			deployments: { ready: depsReady, total: deps.length },
-			// CRD definitions are cluster-scoped — show the count to
-			// cluster-wide readers; ns-only operators see 0 because
-			// they can't act on CRDs at the definition level anyway.
-			crds: accessible === 'all' ? crdsRes.items.length : 0
+			crds: clusterWide ? crdsRes.items.length : null
 		};
 	} catch (err) {
 		// Surface the failure to the page rather than 500 — RBAC
@@ -94,11 +95,11 @@ export const load: PageServerLoad = async (event) => {
 		// whole dash; cards still render with `—`.
 		console.error('k8s overview load failed', err);
 		summary = {
-			nodes: { ready: 0, total: 0 },
+			nodes: clusterWide ? { ready: 0, total: 0 } : null,
 			namespaces: 0,
 			pods: { running: 0, pending: 0, failed: 0, total: 0 },
 			deployments: { ready: 0, total: 0 },
-			crds: 0
+			crds: clusterWide ? 0 : null
 		};
 	}
 
@@ -135,38 +136,6 @@ export const load: PageServerLoad = async (event) => {
 		metricsAvailable = false;
 	}
 
-	return { session, summary, cluster, topPods, metricsAvailable };
+	return { session, summary, cluster, topPods, metricsAvailable, clusterWide };
 };
 
-// Local CPU / memory parsers — same shape as the nodes page but
-// lifted here so the overview page doesn't need to import nodes/+page
-// internals. metrics-server emits CPU as nanocores ("139403626n") for
-// usage and memory in Ki/Mi/Gi.
-function parseCpuMilli(v: string | undefined): number {
-	if (!v) return 0;
-	if (v.endsWith('n')) return parseFloat(v) / 1_000_000;
-	if (v.endsWith('u') || v.endsWith('µ')) return parseFloat(v) / 1_000;
-	if (v.endsWith('m')) return parseFloat(v);
-	const n = parseFloat(v);
-	return Number.isFinite(n) ? n * 1000 : 0;
-}
-
-const MEM_UNITS: Record<string, number> = {
-	Ki: 1024,
-	Mi: 1024 ** 2,
-	Gi: 1024 ** 3,
-	Ti: 1024 ** 4,
-	K: 1000,
-	M: 1000 ** 2,
-	G: 1000 ** 3,
-	T: 1000 ** 4
-};
-function parseMemBytes(v: string | undefined): number {
-	if (!v) return 0;
-	const m = /^([\d.]+)([a-zA-Z]*)$/.exec(v);
-	if (!m) return 0;
-	const num = parseFloat(m[1]);
-	if (!Number.isFinite(num)) return 0;
-	const mult = m[2] ? (MEM_UNITS[m[2]] ?? 1) : 1;
-	return num * mult;
-}

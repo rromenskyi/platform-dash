@@ -292,18 +292,22 @@
 </div>
 
 <section class="stats">
-	<div class="stat">
-		<span class="label">Node</span>
-		<span class="value mono">{data.pod.node ?? '—'}</span>
-	</div>
+	{#if data.clusterWide}
+		<div class="stat">
+			<span class="label">Node</span>
+			<span class="value mono">{data.pod.node ?? '—'}</span>
+		</div>
+	{/if}
 	<div class="stat">
 		<span class="label">Pod IP</span>
 		<span class="value mono">{data.pod.podIP ?? '—'}</span>
 	</div>
-	<div class="stat">
-		<span class="label">Host IP</span>
-		<span class="value mono">{data.pod.hostIP ?? '—'}</span>
-	</div>
+	{#if data.clusterWide}
+		<div class="stat">
+			<span class="label">Host IP</span>
+			<span class="value mono">{data.pod.hostIP ?? '—'}</span>
+		</div>
+	{/if}
 	<div class="stat">
 		<span class="label">Started</span>
 		<span class="value">{age(data.pod.startTime)}</span>

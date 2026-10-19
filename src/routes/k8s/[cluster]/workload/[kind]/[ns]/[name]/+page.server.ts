@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { canRead, canWrite } from '$lib/authz';
+import { canRead, canWrite, accessibleNamespaces } from '$lib/authz';
+import { redactorFor } from '$lib/node-redact.server';
 import { core, apps } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { auditScopedTo } from '$lib/audit.server';
@@ -236,12 +237,16 @@ export const load: PageServerLoad = async (event) => {
 
 	const scopedAudit = auditScopedTo({ cluster, namespace: ns, name, limit: 20 });
 
+	// Node names are cluster-level: hidden from namespace-scoped users.
+	const clusterWide = accessibleNamespaces(session, cluster) === 'all';
+	const r = await redactorFor(cluster, clusterWide);
 	return {
 		cluster,
+		clusterWide,
 		summary,
-		pods,
+		pods: clusterWide ? pods : pods.map((p) => ({ ...p, node: undefined })),
 		podsError,
-		events,
+		events: events.map((e) => ({ ...e, message: r.text(e.message) })),
 		eventsError,
 		scopedAudit,
 		canWriteHere: canWrite(session, cluster, ns)

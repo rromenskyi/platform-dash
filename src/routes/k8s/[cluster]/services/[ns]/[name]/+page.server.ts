@@ -3,7 +3,8 @@ import type { PageServerLoad } from './$types';
 import { core } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { auditScopedTo } from '$lib/audit.server';
-import { requireRead } from '$lib/authz';
+import { requireRead, accessibleNamespaces } from '$lib/authz';
+import { redactorFor } from '$lib/node-redact.server';
 
 export type SvcPort = {
 	name?: string;
@@ -138,10 +139,16 @@ export const load: PageServerLoad = async (event) => {
 		}
 	}
 
+	// Node names and node addresses (host-network backends) are
+	// cluster-level details: hidden from namespace-scoped users.
+	const clusterWide = accessibleNamespaces(session, cluster) === 'all';
+	const r = await redactorFor(cluster, clusterWide);
+	const events = await listScopedEvents(cluster, ns, name, 'Service');
 	return {
 		cluster,
 		ns,
 		name,
+		clusterWide,
 		svc: {
 			type: svc.spec?.type ?? 'ClusterIP',
 			clusterIP: svc.spec?.clusterIP ?? '—',
@@ -158,9 +165,11 @@ export const load: PageServerLoad = async (event) => {
 			annotations: (svc.metadata?.annotations ?? {}) as Record<string, string>
 		},
 		ports,
-		endpoints,
+		endpoints: clusterWide
+			? endpoints
+			: endpoints.map((e) => ({ ...e, nodeName: undefined, ip: r.ip(e.ip) ?? '‹node›' })),
 		endpointsError,
-		events: await listScopedEvents(cluster, ns, name, 'Service'),
+		events: events.map((e) => ({ ...e, message: r.text(e.message) })),
 		scopedAudit: auditScopedTo({ cluster, kind: 'Service', namespace: ns, name, limit: 20 })
 	};
 };

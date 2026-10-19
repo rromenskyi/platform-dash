@@ -116,7 +116,7 @@
 				<tr>
 					<th>IP</th>
 					<th>Ready</th>
-					<th>Node</th>
+					{#if data.clusterWide}<th>Node</th>{/if}
 					<th>Target</th>
 				</tr>
 			</thead>
@@ -125,7 +125,7 @@
 					<tr class:not-ready={!e.ready}>
 						<td class="mono">{e.ip}</td>
 						<td>{e.ready ? '✓' : '—'}</td>
-						<td class="mono small">{e.nodeName ?? '—'}</td>
+						{#if data.clusterWide}<td class="mono small">{e.nodeName ?? '—'}</td>{/if}
 						<td class="mono">
 							{#if e.targetRef?.kind === 'Pod' && e.targetRef.name}
 								<a href="/k8s/{data.cluster}/pod/{e.targetRef.namespace ?? data.ns}/{e.targetRef.name}">{e.targetRef.kind}/{e.targetRef.name}</a>

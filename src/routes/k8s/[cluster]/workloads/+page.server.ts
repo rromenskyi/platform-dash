@@ -167,7 +167,11 @@ export const load: PageServerLoad = async (event) => {
 	// role for. Filtering server-side keeps the row count stat
 	// honest and avoids leaking pod names through the SSE delta path.
 	const accessible = accessibleNamespaces(session, cluster);
-	const filtered = accessible === 'all' ? rows : rows.filter((r) => accessible.includes(r.namespace));
+	const clusterWide = accessible === 'all';
+	// Node names are cluster-scoped: not shown to namespace-scoped users.
+	const filtered = clusterWide
+		? rows
+		: rows.filter((r) => accessible.includes(r.namespace)).map((r) => ({ ...r, node: undefined }));
 
 	filtered.sort((a, b) => {
 		if (a.namespace !== b.namespace) return a.namespace.localeCompare(b.namespace);
@@ -175,5 +179,5 @@ export const load: PageServerLoad = async (event) => {
 		return a.name.localeCompare(b.name);
 	});
 
-	return { session, rows: filtered, cluster, error: errors.length ? errors.join('; ') : null };
+	return { session, rows: filtered, cluster, clusterWide, error: errors.length ? errors.join('; ') : null };
 };

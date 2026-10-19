@@ -2,7 +2,8 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { watcher } from '$lib/k8s.server';
 import { isKnownCluster } from '$lib/clusters.server';
-import { canRead } from '$lib/authz';
+import { canRead, accessibleNamespaces, hasAnyNamespaceRole } from '$lib/authz';
+import { redactorFor } from '$lib/node-redact.server';
 import { isNamespaceName, isObjectName } from '$lib/k8s-names';
 
 // SSE feed of Event objects. Three modes by query string:
@@ -25,11 +26,17 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 	if (name && !isObjectName(name)) throw error(400, 'invalid name');
 	if (!/^[A-Za-z]+$/.test(kind)) throw error(400, 'invalid kind');
 
-	// ns-only operators must scope to their own ns — a cluster-wide
-	// /events stream without ns crosses their boundary.
-	if (!canRead(session, cluster, ns ?? undefined)) {
+	// Namespace-scoped users may stream without ?ns=: the watch is then
+	// cluster-wide but every event outside their namespaces (and every
+	// Node event) is dropped server-side, and node names are scrubbed.
+	const accessible = accessibleNamespaces(session, cluster);
+	const clusterWide = accessible === 'all';
+	if (!canRead(session, cluster, ns ?? undefined) && !(!ns && hasAnyNamespaceRole(session))) {
 		throw error(403, 'read role required (cluster-wide or matching ?ns=)');
 	}
+	const redact = await redactorFor(cluster, clusterWide);
+	const inScope = (namespace: string, involvedKind?: string) =>
+		clusterWide || (involvedKind !== 'Node' && accessible.includes(namespace));
 
 	const path = ns ? `/api/v1/namespaces/${ns}/events` : `/api/v1/events`;
 	const queryParams: Record<string, string> = {};
@@ -89,12 +96,14 @@ export const GET: RequestHandler = async ({ params, url, locals, request }) => {
 							metadata?: { name?: string; namespace?: string };
 							involvedObject?: { kind?: string; name?: string; namespace?: string };
 						};
+						const evNs = e.metadata?.namespace ?? e.involvedObject?.namespace ?? '';
+						if (!inScope(evNs, e.involvedObject?.kind)) return;
 						emit({
 							type,
 							event: {
 								type: e.type ?? '?',
 								reason: e.reason ?? '?',
-								message: e.message ?? '',
+								message: redact.text(e.message ?? ''),
 								count: e.count ?? 1,
 								firstSeen: e.firstTimestamp ?? e.eventTime,
 								lastSeen: e.lastTimestamp ?? e.eventTime,

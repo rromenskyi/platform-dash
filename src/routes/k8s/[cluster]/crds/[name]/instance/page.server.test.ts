@@ -33,9 +33,9 @@ describe('CRD instance loader authz', () => {
 		getCluster.mockClear();
 	});
 
-	it('lets a namespace reader open an instance in their namespace', async () => {
-		await expect(load(event(nsOnly, 'ns=team-a&n=x'))).resolves.toBeTruthy();
-		expect(getNamespaced).toHaveBeenCalledOnce();
+	it('denies namespace readers even in their own namespace (CRDs are cluster-wide only)', async () => {
+		await expect(load(event(nsOnly, 'ns=team-a&n=x'))).rejects.toMatchObject({ status: 403 });
+		expect(getNamespaced).not.toHaveBeenCalled();
 	});
 
 	it('denies a namespace reader an instance in another namespace', async () => {
@@ -49,7 +49,8 @@ describe('CRD instance loader authz', () => {
 		expect(getCluster).not.toHaveBeenCalled();
 	});
 
-	it('lets a cluster-wide reader open a cluster-scoped instance', async () => {
+	it('lets a cluster-wide reader open namespaced and cluster-scoped instances', async () => {
+		await expect(load(event(['platform_sre'], 'ns=team-a&n=x'))).resolves.toBeTruthy();
 		crd.spec.scope = 'Cluster';
 		await expect(load(event(['platform_sre'], 'n=x'))).resolves.toBeTruthy();
 	});

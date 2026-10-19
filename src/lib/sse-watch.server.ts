@@ -1,6 +1,6 @@
 import { Watch } from '@kubernetes/client-node';
 import { error } from '@sveltejs/kit';
-import { canRead } from '$lib/authz';
+import { canRead, accessibleNamespaces, hasAnyNamespaceRole } from '$lib/authz';
 import { isNamespaceName } from '$lib/k8s-names';
 import { isKnownCluster, getKubeConfig } from '$lib/clusters.server';
 import type { Session } from '@auth/core/types';
@@ -37,15 +37,17 @@ export async function buildWatchResponse(
 	const ns = url.searchParams.get('ns') || '';
 	// `ns` is interpolated into the raw watch path.
 	if (ns && !isNamespaceName(ns)) throw error(400, 'invalid namespace');
-	// Pass ns so namespace-scoped readers stream their own ns. A
-	// missing ns falls back to a cluster-wide read role (global or
-	// cluster_<x>_*); ns-only operators without ns get 403, since
-	// streaming cluster-wide would cross their boundary.
-	if (!canRead(session, cluster, ns || undefined)) {
-		// ns-only operators must include `?ns=<their-ns>` — without it,
-		// the stream would be cluster-wide and cross their boundary.
+	// With ?ns=, the caller needs read on that namespace. Without it,
+	// cluster-wide readers stream everything; namespace-scoped users get
+	// the cluster-wide watch filtered server-side to their namespaces
+	// (by the item's `namespace`, or `name` for Namespace objects).
+	const accessible = accessibleNamespaces(session, cluster);
+	if (!canRead(session, cluster, ns || undefined) && !(!ns && hasAnyNamespaceRole(session))) {
 		throw error(403, 'read role required (cluster-wide or matching ?ns=)');
 	}
+	const allowed = (item: Record<string, unknown>) =>
+		accessible === 'all' ||
+		accessible.includes(String(item.namespace ?? item.name ?? ''));
 	const spec = specBuilder(cluster, ns);
 	const w = new Watch(getKubeConfig(cluster));
 	const encoder = new TextEncoder();
@@ -91,7 +93,7 @@ export async function buildWatchResponse(
 					(type, obj) => {
 						if (type === 'BOOKMARK') return;
 						const item = spec.mapItem(obj);
-						if (!item) return;
+						if (!item || !allowed(item)) return;
 						emit({ type, item });
 					},
 					(err) => {

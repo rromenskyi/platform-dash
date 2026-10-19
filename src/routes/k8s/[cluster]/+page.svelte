@@ -24,14 +24,18 @@
 </script>
 
 <h1>K8s Overview <span class="cluster-tag">{c}</span></h1>
-<p class="muted">Cluster-wide health rollup, with deeplinks into the per-resource views.</p>
+<p class="muted">
+	{data.clusterWide ? 'Cluster-wide health rollup' : 'Health of your namespaces'}, with deeplinks into the per-resource views.
+</p>
 
 <section class="stats">
-	<div class="stat">
-		<span class="label">Nodes</span>
-		<span class="value">{s.nodes.ready}<span class="of">/{s.nodes.total}</span></span>
-		<span class="hint">Ready</span>
-	</div>
+	{#if s.nodes}
+		<div class="stat">
+			<span class="label">Nodes</span>
+			<span class="value">{s.nodes.ready}<span class="of">/{s.nodes.total}</span></span>
+			<span class="hint">Ready</span>
+		</div>
+	{/if}
 	<div class="stat">
 		<span class="label">Namespaces</span>
 		<span class="value">{s.namespaces}</span>
@@ -51,11 +55,13 @@
 		<span class="value">{s.deployments.ready}<span class="of">/{s.deployments.total}</span></span>
 		<span class="hint">Ready</span>
 	</div>
-	<div class="stat">
-		<span class="label">CRDs</span>
-		<span class="value">{s.crds}</span>
-		<span class="hint">Installed</span>
-	</div>
+	{#if s.crds !== null}
+		<div class="stat">
+			<span class="label">CRDs</span>
+			<span class="value">{s.crds}</span>
+			<span class="hint">Installed</span>
+		</div>
+	{/if}
 </section>
 
 {#if data.metricsAvailable && data.topPods.length > 0}
@@ -106,10 +112,12 @@
 		<p>Pods, Deployments, StatefulSets across every namespace.</p>
 	</a>
 
-	<a class="card" href="/k8s/{c}/nodes">
-		<h2>Nodes →</h2>
-		<p>Node capacity, allocatable, taints, labels, hosted Pods.</p>
-	</a>
+	{#if data.clusterWide}
+		<a class="card" href="/k8s/{c}/nodes">
+			<h2>Nodes →</h2>
+			<p>Node capacity, allocatable, taints, labels, hosted Pods.</p>
+		</a>
+	{/if}
 
 	<a class="card" href="/k8s/{c}/namespaces">
 		<h2>Namespaces →</h2>
@@ -146,10 +154,12 @@
 		<p>Schedule, suspend, last run.</p>
 	</a>
 
-	<a class="card" href="/k8s/{c}/crds">
-		<h2>CRDs →</h2>
-		<p>CustomResourceDefinitions and their instances across the cluster.</p>
-	</a>
+	{#if data.clusterWide}
+		<a class="card" href="/k8s/{c}/crds">
+			<h2>CRDs →</h2>
+			<p>CustomResourceDefinitions and their instances across the cluster.</p>
+		</a>
+	{/if}
 
 	<a class="card" href="/k8s/{c}/monitoring">
 		<h2>Monitoring →</h2>
