@@ -9,6 +9,7 @@ import { incidentSummary } from '$lib/incident-summary.server';
 import { BUILD_SHA, BUILD_SHA_SHORT, BUILD_TIME, COMMIT_URL } from '$lib/build-info';
 import { env } from '$env/dynamic/private';
 import { resolveOidc } from '$lib/oidc-config';
+import { visiblePlugins } from '$lib/plugins.server';
 
 // Surface the Auth.js session on every page via $page.data.session.
 // Keeping this in a layout (not per-page) means the topbar can show
@@ -67,6 +68,8 @@ export const load: LayoutServerLoad = async (event) => {
 		authProvider: { id: oidc.id, name: oidc.name },
 		// Optional deeplink to the cluster's Grafana; cards hide when unset.
 		grafanaUrl: session?.user ? env.DASH_GRAFANA_URL || null : null,
+		// Sidebar entries for plugins this user may use (DASH_PLUGINS_JSON).
+		plugins: visiblePlugins(session).map((p) => ({ id: p.id, title: p.title, icon: p.icon ?? null })),
 		// Build identity only for signed-in users — it's a version
 		// fingerprint, and inlining it client-side shipped it to anyone.
 		build: session?.user

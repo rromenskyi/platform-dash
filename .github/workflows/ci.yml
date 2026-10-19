@@ -58,6 +58,8 @@ jobs:
               --set grafanaUrl=https://grafana.example.com \
               --set 'ingress.tls[0].secretName=dash-tls' \
               --set rbac.readOnly=$ro \
+              --set 'plugins[0].id=demo' --set 'plugins[0].title=Demo' \
+              --set 'plugins[0].element=x-demo' --set 'plugins[0].url=http://demo.demo.svc:8080' \
               | tee rendered.yaml | ./kubeconform -strict -summary
             cat rendered.yaml
             echo "::endgroup::"

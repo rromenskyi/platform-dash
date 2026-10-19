@@ -61,6 +61,89 @@ bars read the kubelet stats via the API server and need full RBAC.
 Upgrade with `helm upgrade dash platform-dash/deploy/helm/platform-dash
 --reuse-values`; the session key is generated once and kept.
 
+## Plugins
+
+Other services can add pages to the dashboard. A plugin is a back end
+you run plus a custom element it serves; the dashboard lists it in the
+sidebar, mounts the element inside its layout and proxies the
+element's API calls with the user's OIDC access token.
+
+Configure with `DASH_PLUGINS_JSON` (Helm: `plugins`):
+
+```json
+[{ "id": "projects", "title": "Projects", "icon": "📦",
+   "element": "x-projects", "url": "http://projects.apps.svc:8080",
+   "roles": [] }]
+```
+
+| Key | |
+|---|---|
+| `id` | `[a-z0-9-]`, ≤32 — used in the paths below |
+| `title`, `icon` | sidebar entry |
+| `element` | custom-element tag the bundle defines |
+| `url` | the plugin back end, reached from the dashboard server only |
+| `roles` | who sees and may call it; empty = any signed-in user |
+
+Invalid entries are skipped with a log line.
+
+**What the plugin back end serves**
+
+- `GET /ui/plugin.js` — an ES module that defines `element`.
+- Its API, at any other path.
+
+**Paths**
+
+- `/plugins/<id>` and any subpath — dashboard page hosting the element.
+- `/plugin-api/<id>/<path>` → `<url>/<path>`. The bundle is loaded from
+  `/plugin-api/<id>/ui/plugin.js`.
+
+**Proxy behaviour.** Adds `Authorization: Bearer <access token>` (refreshed
+before expiry; validate it with your IdP), `X-Forwarded-Prefix:
+/plugin-api/<id>`, `X-Forwarded-Host/Proto/For`. Passes method, query, body
+(≤10 MB) and `accept`, `accept-language`, `content-type`, `cache-control`,
+`if-*`, `range`, `x-request-id`. Never forwards dashboard cookies and drops
+`Set-Cookie` from responses. Responses stream (SSE works); the wait for
+response headers is capped at 30 s. A `Location` on the plugin is rewritten
+under the proxy prefix. Mutating requests must come from the dashboard's
+own origin. No WebSockets.
+
+Errors from the proxy itself are JSON: `401 {"error":"session_expired"}`
+(no session or no usable token), `403 forbidden`, `404 unknown_plugin`,
+`400 bad_path` (`.`/`..` segments), `413 body_too_large`,
+`502 plugin_unreachable`, `504 plugin_timeout`. Plugin responses, including
+its own 401s, pass through unchanged.
+
+**`element.context`** is assigned a new object whenever something changes
+(navigation, theme, …) — implement it as a setter:
+
+```ts
+{
+  user: { sub, name, email },
+  roles: string[],
+  namespaces: 'all' | string[],   // namespaces this user may access
+  cluster: string,
+  theme: 'light' | 'dark',
+  base: '/plugin-api/<id>',       // prefix for API calls and assets
+  route: '/plugins/<id>',         // page root
+  path: string,                   // subpath after route, '' at the root
+  navigate(path, { replace? }),   // move within the plugin (keeps history)
+  reauth()                        // sign in again and come back here
+}
+```
+
+Plain `<a href="/plugins/<id>/…">` links work too. On a 401 from the
+proxy or your back end, call `context.reauth()`.
+
+**Styling.** The element renders inside the dashboard's DOM and should
+use its CSS custom properties, which are a stable API (defined on `:root`,
+switched for the light theme): `--bg`, `--bg-elev`, `--bg-soft`, `--fg`,
+`--fg-soft`, `--muted`, `--rule`, `--accent`, `--accent-d`, `--invert-bg`,
+`--invert-fg`, `--code-bg`, `--code-fg`, `--font-sans`, `--font-display`,
+`--font-mono`.
+
+**Trust.** Plugin code runs in the dashboard's origin and receives users'
+access tokens. Only list plugins you control.
+
 ## Local dev
 
 1. Register an OIDC client with redirect URI

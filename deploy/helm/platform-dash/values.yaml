@@ -66,6 +66,11 @@ ingress:
   tls: []
   #  - secretName: platform-dash-tls
 
+# Plugins (see README "Plugins"): list of
+#   {id, title, icon, element, url, roles}
+# Only list plugins you control — they get users' access tokens.
+plugins: []
+
 # Extra environment, e.g. DASH_CLUSTERS_JSON or DASH_DB_TARGETS_JSON.
 extraEnv: []
 

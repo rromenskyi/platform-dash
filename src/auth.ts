@@ -73,6 +73,8 @@ export const { handle, signIn, signOut } = SvelteKitAuth({
 		// (and /auth/session). /profile reads them via getToken().
 		async session({ session, token }) {
 			session.roles = (token.roles as string[] | undefined) ?? [];
+			// Stable IdP subject — plugins key users on it.
+			if (session.user && token.sub) session.user.id = token.sub;
 			return session;
 		}
 	}
