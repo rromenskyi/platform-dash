@@ -259,5 +259,7 @@ export const load: PageServerLoad = async (event) => {
 		{ pods: 0, nodes: 0, events: 0, oom: 0 }
 	);
 
-	return { reports, totals, snapshotAt: new Date().toISOString() };
+	// Node health is shown only to sessions with cluster-wide read.
+	const nodesVisible = clusters.some((c) => accessibleNamespaces(session, c) === 'all');
+	return { reports, totals, nodesVisible, snapshotAt: new Date().toISOString() };
 };

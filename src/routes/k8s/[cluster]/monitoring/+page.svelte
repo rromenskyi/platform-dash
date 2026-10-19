@@ -4,14 +4,16 @@
 	let { data } = $props();
 
 	const pct = (used: number | null, of: number) => (used === null || !of ? null : Math.round((used / of) * 100));
-	const level = (p: number | null) => (p === null ? '' : p >= 90 ? 'bad' : p >= 70 ? 'warn' : 'ok');
+	// Colour only against a limit: exceeding a request is normal.
+	const level = (p: number | null, isLimit: boolean) =>
+		p === null || !isLimit ? '' : p >= 90 ? 'bad' : p >= 70 ? 'warn' : 'ok';
 </script>
 
 {#snippet meter(used: number | null, req: number, lim: number, fmt: (n: number) => string)}
 	{@const of = lim || req}
 	{@const p = pct(used, of)}
 	<div class="meter" title={`used ${used === null ? '—' : fmt(used)} · request ${req ? fmt(req) : '—'} · limit ${lim ? fmt(lim) : '—'}`}>
-		<div class="bar"><div class="fill {level(p)}" style="width: {Math.min(p ?? 0, 100)}%"></div></div>
+		<div class="bar"><div class="fill {level(p, !!lim)}" style="width: {Math.min(p ?? 0, 100)}%"></div></div>
 		<span class="num">
 			{used === null ? '—' : fmt(used)}
 			<span class="muted">/ {of ? fmt(of) : 'no limit'}{lim ? '' : req ? ' req' : ''}</span>
@@ -92,7 +94,20 @@
 
 <style>
 	.header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
-	.cluster-tag { font-family: var(--font-mono); font-size: 0.78em; color: var(--accent); margin-left: 0.5rem; }
+	.cluster-tag {
+		display: inline-block;
+		margin-left: 0.5rem;
+		padding: 0.05rem 0.55rem;
+		border-radius: 4px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		background: var(--bg-elev);
+		color: var(--accent);
+		border: 1px solid var(--rule);
+		font-family: var(--font-mono);
+		vertical-align: middle;
+	}
 	.small { font-size: 0.85rem; }
 	.link { color: var(--accent); }
 	.err { color: #fb7185; }

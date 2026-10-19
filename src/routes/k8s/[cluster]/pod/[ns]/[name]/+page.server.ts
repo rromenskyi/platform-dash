@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import { core, metrics } from '$lib/k8s.server';
 import { time } from '$lib/k8s-metrics.server';
 import { auditScopedTo } from '$lib/audit.server';
-import { requireRead, canWrite } from '$lib/authz';
+import { requireRead, canWrite, accessibleNamespaces } from '$lib/authz';
 
 export type ContainerUsage = {
 	cpu?: string;
@@ -179,15 +179,18 @@ export const load: PageServerLoad = async (event) => {
 	// to /admin/audit.
 	const scopedAudit = auditScopedTo({ cluster, namespace: ns, name, limit: 20 });
 
+	// Node and host IP are cluster-level details: cluster-wide readers only.
+	const clusterWide = accessibleNamespaces(session, cluster) === 'all';
 	return {
 		cluster,
+		clusterWide,
 		pod: {
 			name,
 			namespace: ns,
-			node: pod.spec?.nodeName,
+			node: clusterWide ? pod.spec?.nodeName : undefined,
 			phase: pod.status?.phase ?? '?',
 			podIP: pod.status?.podIP,
-			hostIP: pod.status?.hostIP,
+			hostIP: clusterWide ? pod.status?.hostIP : undefined,
 			qosClass: pod.status?.qosClass,
 			startTime: pod.status?.startTime
 				? new Date(pod.status.startTime).toISOString()

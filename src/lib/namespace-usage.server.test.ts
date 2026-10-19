@@ -74,4 +74,14 @@ describe('summarize', () => {
 		expect(namespaces[0]).toMatchObject({ pods: 3, running: 2, failing: 1, restarts: 8, oom24h: 1, cpuRequestMilli: 200 });
 		expect(pods[0]).toMatchObject({ name: 'crash', failing: true, lastTermination: 'OOMKilled' });
 	});
+
+	it('reports a limit only when every active container has one', () => {
+		const unlimited = pod('a', 'u', {
+			spec: { containers: [{ name: 'app', resources: { requests: { cpu: '50m', memory: '64Mi' } } }] }
+		});
+		const { namespaces, pods } = summarize([pod('a', 'p1'), unlimited], null, NOW);
+		expect(namespaces[0]).toMatchObject({ cpuLimitMilli: 0, memLimitBytes: 0, cpuRequestMilli: 150 });
+		expect(pods.find((p) => p.name === 'p1')).toMatchObject({ cpuLimitMilli: 1000, memLimitBytes: 512 * 1024 ** 2 });
+		expect(pods.find((p) => p.name === 'u')).toMatchObject({ cpuLimitMilli: 0, memLimitBytes: 0 });
+	});
 });

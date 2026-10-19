@@ -612,7 +612,9 @@
 			<th class="sortable" onclick={() => setSort('status')}>Status{sortIndicator('status')}</th>
 			<th class="sortable" onclick={() => setSort('restarts')}>Restarts{sortIndicator('restarts')}</th>
 			<th class="sortable" onclick={() => setSort('image')}>Image{sortIndicator('image')}</th>
-			<th class="sortable" onclick={() => setSort('node')}>Node{sortIndicator('node')}</th>
+			{#if data.clusterWide}
+				<th class="sortable" onclick={() => setSort('node')}>Node{sortIndicator('node')}</th>
+			{/if}
 			<th class="sortable" onclick={() => setSort('age')}>Age{sortIndicator('age')}</th>
 			<th>Actions</th>
 		</tr>
@@ -662,7 +664,9 @@
 						<span class="muted">—</span>
 					{/if}
 				</td>
-				<td class="node">{#if r.node}<a href="/k8s/{data.cluster}/nodes#{r.node}">{r.node}</a>{:else}<span class="muted">—</span>{/if}</td>
+				{#if data.clusterWide}
+					<td class="node">{#if r.node}<a href="/k8s/{data.cluster}/nodes#{r.node}">{r.node}</a>{:else}<span class="muted">—</span>{/if}</td>
+				{/if}
 				<td>{age(r.creationTimestamp)}</td>
 				{#if canWriteRow(r.namespace)}
 					<td class="actions">

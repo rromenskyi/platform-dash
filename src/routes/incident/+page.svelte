@@ -196,7 +196,9 @@
 
 <section class="rollup">
 	<div class="card chip"><span class="k">Failing pods</span><span class="v" class:bad={data.totals.pods > 0}>{data.totals.pods}</span></div>
-	<div class="card chip"><span class="k">Bad nodes</span><span class="v" class:bad={data.totals.nodes > 0}>{data.totals.nodes}</span></div>
+	{#if data.nodesVisible}
+		<div class="card chip"><span class="k">Bad nodes</span><span class="v" class:bad={data.totals.nodes > 0}>{data.totals.nodes}</span></div>
+	{/if}
 	<div class="card chip"><span class="k">Warning events</span><span class="v" class:warn={data.totals.events > 0}>{data.totals.events}</span></div>
 	<div class="card chip"><span class="k">OOMKilled (24h)</span><span class="v" class:bad={data.totals.oom > 0}>{data.totals.oom}</span></div>
 </section>
@@ -227,7 +229,7 @@
 				<span class="badge bad">unreachable</span>
 			{:else}
 				<span class="muted small">
-					{r.totals.pods} pods · {r.totals.nodes} nodes · {r.totals.events} events
+					{r.totals.pods} pods{#if data.nodesVisible} · {r.totals.nodes} nodes{/if} · {r.totals.events} events
 				</span>
 			{/if}
 		</header>

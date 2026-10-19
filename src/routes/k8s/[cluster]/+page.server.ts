@@ -15,12 +15,15 @@ export const load: PageServerLoad = async (event) => {
 	// Cluster summary — pulled once per request, cached implicitly by
 	// SvelteKit's data-loading. Cheap reads (counts only).
 	let summary: {
-		nodes: { ready: number; total: number };
+		// null for namespace-scoped users: nodes and CRD definitions are
+		// cluster-scoped and not theirs to see.
+		nodes: { ready: number; total: number } | null;
 		namespaces: number;
 		pods: { running: number; pending: number; failed: number; total: number };
 		deployments: { ready: number; total: number };
-		crds: number;
+		crds: number | null;
 	};
+	const clusterWide = accessibleNamespaces(session, cluster) === 'all';
 
 	try {
 		const [nodesRes, nsRes, podsRes, depsRes, crdsRes] = await Promise.all([
@@ -74,7 +77,7 @@ export const load: PageServerLoad = async (event) => {
 				: nsRes.items.filter((n) => accessible.includes(n.metadata?.name ?? '')).length;
 
 		summary = {
-			nodes: { ready: nodesReady, total: nodes.length },
+			nodes: clusterWide ? { ready: nodesReady, total: nodes.length } : null,
 			namespaces: visibleNamespaces,
 			pods: {
 				running: phaseCount('Running'),
@@ -83,10 +86,7 @@ export const load: PageServerLoad = async (event) => {
 				total: pods.length
 			},
 			deployments: { ready: depsReady, total: deps.length },
-			// CRD definitions are cluster-scoped — show the count to
-			// cluster-wide readers; ns-only operators see 0 because
-			// they can't act on CRDs at the definition level anyway.
-			crds: accessible === 'all' ? crdsRes.items.length : 0
+			crds: clusterWide ? crdsRes.items.length : null
 		};
 	} catch (err) {
 		// Surface the failure to the page rather than 500 — RBAC
@@ -135,7 +135,7 @@ export const load: PageServerLoad = async (event) => {
 		metricsAvailable = false;
 	}
 
-	return { session, summary, cluster, topPods, metricsAvailable };
+	return { session, summary, cluster, topPods, metricsAvailable, clusterWide };
 };
 
 // Local CPU / memory parsers — same shape as the nodes page but

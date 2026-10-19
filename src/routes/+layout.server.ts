@@ -1,5 +1,5 @@
 import type { LayoutServerLoad } from './$types';
-import { canRead, canWrite, hasAnyNamespaceRole } from '$lib/authz';
+import { canRead, canWrite, hasAnyNamespaceRole, roleBadge } from '$lib/authz';
 import { defaultCluster, listClusters } from '$lib/clusters.server';
 import { materialize } from '$lib/resource';
 import { buildAllTrees } from '$lib/resource-tree-k8s.server';
@@ -25,10 +25,10 @@ export const load: LayoutServerLoad = async (event) => {
 	// namespace_<name>_sre/admin users have access to one namespace.
 	// Treat them all as readers so the layout, sidebar and topbar pill
 	// render — per-page loaders do the actual ns-scoped checks.
-	const reader =
-		canRead(session) ||
-		listClusters().some((c) => canRead(session, c)) ||
-		hasAnyNamespaceRole(session);
+	// Cluster-wide read on at least one cluster (not namespace-scoped
+	// only): gates cluster-level UI such as the API health pill.
+	const clusterReader = canRead(session) || listClusters().some((c) => canRead(session, c));
+	const reader = clusterReader || hasAnyNamespaceRole(session);
 	// Tree is read-only metadata about what's configured — only build
 	// it when the user actually has access to anything, so unauthorised
 	// pages don't waste cycles. Refresh the DB targets registry first
@@ -64,6 +64,8 @@ export const load: LayoutServerLoad = async (event) => {
 	const oidc = resolveOidc(env);
 	return {
 		session,
+		clusterReader,
+		roleBadge: roleBadge(session, listClusters()),
 		// Sign-in button target + label (provider-agnostic OIDC).
 		authProvider: { id: oidc.id, name: oidc.name },
 		// Optional deeplink to the cluster's Grafana; cards hide when unset.

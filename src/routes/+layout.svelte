@@ -86,7 +86,8 @@
 	let canWrite = $derived(!!page.data.canWrite);
 	let defaultCluster = $derived((page.data.defaultCluster as string | undefined) ?? 'local');
 	let tree = $derived((page.data.tree as SerializableNode[] | undefined) ?? []);
-	let roleLabel = $derived(canWrite ? 'admin' : canRead ? 'sre' : '');
+	let roleLabel = $derived((page.data.roleBadge as string | undefined) ?? '');
+	let clusterReader = $derived(!!page.data.clusterReader);
 
 	// Detect the cluster the user is currently looking at by reading
 	// the second path segment under /k8s/. When they're outside /k8s
@@ -188,7 +189,8 @@
 	{/if}
 	<nav class="topnav">
 		{#if session?.user && canRead}
-			{#if page.data.apiHealth}
+			<!-- Dash-wide k8s API latency: cluster-level, not for ns-scoped users. -->
+			{#if page.data.apiHealth && clusterReader}
 				{@const h = page.data.apiHealth as { count: number; errors: number; p95: number }}
 				<a
 					class="apipill"
@@ -240,7 +242,7 @@
 		{/if}
 		{#if session?.user}
 			{#if roleLabel}
-				<span class="role role-{roleLabel}" title={session.user.email ?? session.user.name ?? ''}>{roleLabel}</span>
+				<span class="role role-{roleLabel.replace(' ', '-')}" title={session.user.email ?? session.user.name ?? ''}>{roleLabel}</span>
 			{:else}
 				<span class="role role-none" title="Sign-in succeeded but no platform_admin or platform_sre role assigned">no role</span>
 			{/if}
@@ -517,6 +519,8 @@
 	}
 	.role-admin { color: #6ee7b7; border-color: #6ee7b7; }
 	.role-sre { color: #a5b4fc; border-color: #a5b4fc; }
+	.role-ns-admin,
+	.role-ns-read { color: var(--fg-soft); border-color: var(--muted); }
 	.role-none { color: #fb7185; border-color: #fb7185; }
 
 	.layout {
