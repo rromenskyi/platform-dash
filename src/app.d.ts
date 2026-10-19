@@ -22,6 +22,8 @@ declare module '@auth/core/jwt' {
 		idToken?: string;
 		roles?: string[];
 		authAt?: number;
+		refreshToken?: string;
+		expiresAt?: number;
 	}
 }
 
