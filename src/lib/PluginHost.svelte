@@ -12,7 +12,8 @@
 	let theme = $state<'light' | 'dark'>('dark');
 
 	let route = $derived(`/plugins/${data.plugin.id}`);
-	let path = $derived(page.url.pathname.slice(route.length));
+	// '' at the root, with or without a trailing slash (README contract).
+	let path = $derived(page.url.pathname.slice(route.length).replace(/^\/$/, ''));
 
 	// Contract (README "Plugins"): a new object on every change, so a
 	// plugin can react in its `context` setter.

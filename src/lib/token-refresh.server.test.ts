@@ -106,6 +106,20 @@ describe('ensureFresh', () => {
 		expect(await ensureFresh(expiring)).toBeNull();
 	});
 
+	it('treats other 4xx errors as transient', async () => {
+		const { ensureFresh } = setup(() => new Response('{"error":"invalid_request"}', { status: 400 }));
+		expect((await ensureFresh(expiring))?.accessToken).toBe('old');
+	});
+
+	it('refreshes a token with unknown expiry when it can', async () => {
+		const { ensureFresh, tokenCalls } = setup(() => Response.json({ access_token: 'new', expires_in: 60 }));
+		const legacy = { accessToken: 'old', refreshToken: 'rx' };
+		expect((await ensureFresh(legacy))?.accessToken).toBe('new');
+		expect(tokenCalls()).toHaveLength(1);
+		const noRefresh = { accessToken: 'old' };
+		expect(await ensureFresh(noRefresh)).toBe(noRefresh);
+	});
+
 	it('keeps a still-valid token on a network error, without caching it', async () => {
 		let fail = true;
 		const { ensureFresh, tokenCalls } = setup(() => {

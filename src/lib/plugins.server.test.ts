@@ -26,13 +26,14 @@ describe('parsePlugins', () => {
 				{ ...good, element: 'noHyphen' },
 				{ ...good, url: 'file:///etc/passwd' },
 				{ ...good, title: '' },
+				{ ...good, url: 'http://user:pw@svc' },
 				good,
 				{ ...good } // duplicate id
 			]),
 			log
 		);
 		expect(out.map((p) => p.id)).toEqual(['proj']);
-		expect(log).toHaveBeenCalledTimes(5);
+		expect(log).toHaveBeenCalledTimes(6);
 		expect(log.mock.calls.map((c) => c[0]).join('\n')).toMatch(/\[2\]: url must be http\(s\)/);
 	});
 
@@ -69,7 +70,7 @@ describe('rewriteLocation', () => {
 		expect(rewriteLocation('http://svc:8080/a?q=1', 'http://svc:8080', b)).toBe('/plugin-api/x/a?q=1');
 		expect(rewriteLocation('/app/login', 'http://svc/app', b)).toBe('/plugin-api/x/login');
 		expect(rewriteLocation('http://svc/app/login', 'http://svc/app', b)).toBe('/plugin-api/x/login');
-		expect(rewriteLocation('//evil.example/x', 'http://svc', b)).toBe('//evil.example/x');
+		expect(rewriteLocation('//evil.example/x', 'http://svc', b)).toBe('/plugin-api/x/evil.example/x');
 		expect(rewriteLocation('https://idp.example/auth', 'http://svc', b)).toBe('https://idp.example/auth');
 		expect(rewriteLocation('next', 'http://svc', b)).toBe('next');
 	});

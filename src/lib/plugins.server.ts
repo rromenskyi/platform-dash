@@ -81,6 +81,8 @@ function invalid(p: Record<string, unknown>, seen: Set<string>): string | null {
 	try {
 		const u = new URL(p.url);
 		if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'url must be http(s)';
+		if (u.username || u.password) return 'url must not contain credentials';
+		if (u.hash || u.search) return 'url must not have a query or fragment';
 	} catch {
 		return 'url is not a valid URL';
 	}
@@ -118,7 +120,10 @@ export function rewriteLocation(loc: string, pluginUrl: string, base: string): s
 	if (loc === pluginUrl || loc.startsWith(pluginUrl + '/') || loc.startsWith(pluginUrl + '?')) {
 		return base + (loc.slice(pluginUrl.length) || '/');
 	}
-	if (loc.startsWith('/') && !loc.startsWith('//')) {
+	// Protocol-relative ("//host/…") would leave dash's origin — keep it
+	// inside the plugin instead of becoming an open redirect.
+	if (loc.startsWith('//')) return base + '/' + loc.replace(/^\/+/, '');
+	if (loc.startsWith('/')) {
 		const prefix = new URL(pluginUrl).pathname.replace(/\/+$/, '');
 		if (prefix && (loc === prefix || loc.startsWith(prefix + '/') || loc.startsWith(prefix + '?'))) {
 			return base + (loc.slice(prefix.length) || '/');

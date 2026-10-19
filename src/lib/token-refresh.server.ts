@@ -41,6 +41,8 @@ const IDP_TIMEOUT_MS = 10_000;
 // Used when the token response omits expires_in, so the token is still
 // refreshed instead of being treated as fresh forever.
 const DEFAULT_TTL_S = 300;
+const MAX_REMEMBERED = 10_000;
+const SWEEP_EVERY_MS = 60_000;
 
 export function decodeJwtPayload(jwt: string | undefined): Record<string, unknown> | null {
 	if (!jwt) return null;
@@ -59,10 +61,22 @@ export function createRefresher(deps: Deps) {
 	const doFetch = deps.fetch ?? fetch;
 	const now = deps.now ?? Date.now;
 	const recent = new Map<string, { at: number; result: Promise<TokenSet | null> }>();
+	let lastSweep = 0;
 	let endpoint: Promise<string> | null = null;
+	const issuer = (deps.issuer ?? '').replace(/\/+$/, '');
+
+	// Expire old entries at most once a minute; hard cap by evicting the
+	// oldest (Map keeps insertion order).
+	function sweep() {
+		if (now() - lastSweep > SWEEP_EVERY_MS) {
+			lastSweep = now();
+			for (const [k, v] of recent) if (now() - v.at > REMEMBER_MS) recent.delete(k);
+		}
+		while (recent.size >= MAX_REMEMBERED) recent.delete(recent.keys().next().value!);
+	}
 
 	function tokenEndpoint(): Promise<string> {
-		endpoint ??= doFetch(`${deps.issuer}/.well-known/openid-configuration`, {
+		endpoint ??= doFetch(`${issuer}/.well-known/openid-configuration`, {
 			signal: AbortSignal.timeout(IDP_TIMEOUT_MS)
 		})
 			.then((r) => {
@@ -92,7 +106,7 @@ export function createRefresher(deps: Deps) {
 		// Transient trouble (unreachable, timeout, 5xx/429, garbage body):
 		// keep a still-valid token and don't remember the outcome; only an
 		// explicit rejection of the refresh token ends the session.
-		const transient = () => (t.expiresAt && t.expiresAt > now() / 1000 ? t : null);
+		const transient = () => (!t.expiresAt || t.expiresAt > now() / 1000 ? t : null);
 		let j: { access_token?: string; expires_in?: number; refresh_token?: string; id_token?: string };
 		try {
 			const res = await doFetch(await tokenEndpoint(), {
@@ -101,8 +115,15 @@ export function createRefresher(deps: Deps) {
 				body,
 				signal: AbortSignal.timeout(IDP_TIMEOUT_MS)
 			});
-			if (res.status === 400 || res.status === 401) return null; // invalid_grant / invalid_client
-			if (!res.ok) return transient();
+			if (!res.ok) {
+				// Only a definitive rejection ends the session; any other
+				// error (invalid_request, 5xx, 429, …) is treated as transient.
+				const err = await res
+					.json()
+					.then((e: { error?: string }) => e?.error)
+					.catch(() => undefined);
+				return err === 'invalid_grant' || err === 'invalid_client' ? null : transient();
+			}
 			j = await res.json();
 		} catch {
 			return transient();
@@ -121,10 +142,12 @@ export function createRefresher(deps: Deps) {
 	// Returns the token set to use (possibly refreshed), or null when the
 	// session can no longer produce a valid access token.
 	async function ensureFresh(t: TokenSet, hop = 0): Promise<TokenSet | null> {
-		if (!t.expiresAt || t.expiresAt - SKEW_S > now() / 1000) return t;
-		if (!t.refreshToken) return t.expiresAt > now() / 1000 ? t : null;
+		// Unknown expiry: refresh if we can, otherwise use what we have.
+		if (!t.expiresAt && !t.refreshToken) return t;
+		if (t.expiresAt && t.expiresAt - SKEW_S > now() / 1000) return t;
+		if (!t.refreshToken) return t.expiresAt! > now() / 1000 ? t : null;
 
-		for (const [k, v] of recent) if (now() - v.at > REMEMBER_MS) recent.delete(k);
+		sweep();
 		let entry = recent.get(t.refreshToken);
 		if (!entry) {
 			const key = t.refreshToken;
